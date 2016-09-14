@@ -102,6 +102,76 @@ double bs_b3(double x, int i, double *t) {
   else return 0.0;
 }
 
+
+//-----------------------------------------------------------------------------
+// version of above with precomputed differences
+//
+// dtinv[3i+j] stores 1./(t[i+1+j] - t[i])
+
+// b_{3,i}(x) for t[i] <= x < t[i+1]
+double b3_0_pre(double x, int i, double *t, double *dtinv) {
+  return
+    (x - t[i]) * (x - t[i]) * (x - t[i]) *
+    dtinv[3*i+2] * dtinv[3*i+1] * dtinv[3*i];
+}
+
+// b_{3, i}(x) for t[i+1] <= x < t[i+2]
+double b3_1_pre(double x, int i, double *t, double *dtinv) {
+  return
+    (x - t[i]) * dtinv[3*i+2] *
+    ((x - t[i]) * (t[i+2] - x) * dtinv[3*i+1] * dtinv[3*(i+1)]
+     +
+     (t[i+3] - x) * (x - t[i+1]) * dtinv[3*(i+1)+1] * dtinv[3*(i+1)])
+    +
+    (t[i+4] - x) * (x - t[i+1]) * (x - t[i+1]) *
+    dtinv[3*(i+1)+2] * dtinv[3*(i+1)+1] * dtinv[3*(i+1)];
+}
+
+// b_{3, i}(x) for t[i+2] <= x < t[i+3]
+double b3_2_pre(double x, int i, double *t, double *dtinv) {
+  return
+    (x - t[i]) * (t[i+3] - x) * (t[i+3] - x) *
+    dtinv[3*i+2] * dtinv[3*(i+1)+1] * dtinv[3*(i+2)]
+    +
+    (t[i+4] - x) * dtinv[3*(i+1)+2] *
+    ((x - t[i+1]) * (t[i+3] - x) * dtinv[3*(i+1)+1] * dtinv[3*(i+2)]
+     +
+     (t[i+4] - x) * (x - t[i+2]) * dtinv[3*(i+2)+1] * dtinv[3*(i+2)]);
+}
+
+// b_{3, i}(x) for t[i+3] <= x < t[i+4]
+double b3_3_pre(double x, int i, double *t, double *dtinv) {
+  return
+    (t[i+4] - x) * (t[i+4] - x) * (t[i+4] - x) *
+    dtinv[3*(i+1)+2] * dtinv[3*(i+2)+1] * dtinv[3*(i+3)];
+}
+
+// b_{3, i-3}(x), b_{3, i-2}(x), b_{3, i-1}(x), b_{3, i}(x)
+// assuming t[i] <= x < t[i+1]
+void b3vec_pre(double x, int i, double *t, double *dtinv, double out[4])
+{
+  double dx0 = x - t[i-2];
+  double dx1 = x - t[i-1];
+  double dx2 = x - t[i];
+  double dx3 = t[i+1] - x;
+  double dx4 = t[i+2] - x;
+  double dx5 = t[i+3] - x;
+  
+  double dtinv1 = dtinv[3*(i-2)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double dtinv2 = dtinv[3*i+2]     * dtinv[3*i+1]     * dtinv[3*i];
+
+  double c1 = dx3 * dx3 * dtinv1;
+  double c2 = dx2 * dx2 * dtinv2;
+  double c3 = dx3 * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double c4 = dx2 * dtinv[3*i+1] * dtinv[3*i];
+    
+  out[0] = dx3 * c1;
+  out[1] = dx0 * c1 + dx4 * dtinv[3*(i-1)+2] * (dx1 * c3 + dx4 * c4);    
+  out[2] = dx5 * c2 + dx1 * dtinv[3*(i-1)+2] * (dx1 * c3 + dx4 * c4);
+  out[3] = dx2 * c2;
+}
+
+
 //-----------------------------------------------------------------------------
 // first derivatives of above functions
 //-----------------------------------------------------------------------------
@@ -280,6 +350,24 @@ void free_knots(double *knots) {
   free(knots);
 }
 
+// dtinv[3i+j] stores 1./(t[i+1+j] - t[i])
+double* alloc_dtinv(double *knots, int n) {
+  double *dtinv = malloc(3 * (n+2) * sizeof(double));
+  dtinv += 6;
+  
+  for (int i=-2; i<n; i++) {
+    dtinv[3*i+0] = 1.0 / (knots[i+1] - knots[i]);
+    dtinv[3*i+1] = 1.0 / (knots[i+2] - knots[i]);
+    dtinv[3*i+2] = 1.0 / (knots[i+3] - knots[i]);
+  }
+
+  return dtinv;
+}
+
+void free_dtinv(double *dtinv) {
+  dtinv -= 6;
+  free(dtinv);
+}
 //-----------------------------------------------------------------------------
 // solve()
 //
@@ -397,6 +485,7 @@ bs_spline1d* bs_create_spline1d(bs_array x, bs_array y, bs_bcs bcs)
   
   spline->knots = alloc_knots(x);
   spline->n = N;
+  spline->dtinv = alloc_dtinv(spline->knots, N);
 
   // sparse matrix
   double *A = malloc(3 * M * sizeof(double));
@@ -452,6 +541,7 @@ void bs_free_spline1d(bs_spline1d* spline)
 {
   if (spline != NULL) {
     free_knots(spline->knots);
+    free_dtinv(spline->dtinv);
     free(spline->coeffs);
     free(spline);
   }
@@ -489,6 +579,7 @@ int bs_evalvec_spline1d(bs_spline1d *spline, bs_array x, bs_array out)
   int i = find_index_binary(spline->knots, spline->n, x.data[0]);
 
   double xval;
+  double b3vals[4];
   for (int j=0; j<x.length; j++) {
     xval = x.data[j*x.stride];
     i = find_index_from(spline->knots, spline->n, xval, i);
@@ -503,11 +594,11 @@ int bs_evalvec_spline1d(bs_spline1d *spline, bs_array x, bs_array out)
       xval = spline->knots[spline->n - 1];
     }
 
-    out.data[j*out.stride] =
-      (spline->coeffs[i]   * b3_3(xval, i-3, spline->knots) +
-       spline->coeffs[i+1] * b3_2(xval, i-2, spline->knots) +
-       spline->coeffs[i+2] * b3_1(xval, i-1, spline->knots) +
-       spline->coeffs[i+3] * b3_0(xval, i,   spline->knots));
+    b3vec_pre(xval, i, spline->knots, spline->dtinv, b3vals);
+    out.data[j*out.stride] = (spline->coeffs[i]   * b3vals[0] +
+                              spline->coeffs[i+1] * b3vals[1] +
+                              spline->coeffs[i+2] * b3vals[2] +
+                              spline->coeffs[i+3] * b3vals[3]);
   }
 
   return 0;

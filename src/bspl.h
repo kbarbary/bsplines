@@ -28,6 +28,7 @@ typedef struct {
 
 typedef struct {
   double *knots;
+  double *dtinv;
   double *coeffs;
   int n;
 } bs_spline1d;
