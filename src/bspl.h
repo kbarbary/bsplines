@@ -34,4 +34,5 @@ typedef struct {
 
 bs_spline1d* bs_create_spline1d(bs_array x, bs_array y, bs_bcs bcs);
 double bs_eval_spline1d(bs_spline1d *spline, double x);
+int bs_evalvec_spline1d(bs_spline1d *spline, bs_array x, bs_array out);
 void bs_free_spline1d(bs_spline1d *spline);

@@ -32,6 +32,7 @@ cdef extern from "bspl.h":
 
     bs_spline1d* bs_create_spline1d(bs_array x, bs_array y, bs_bcs bcs)
     double bs_eval_spline1d(bs_spline1d *spline, double x)
+    int bs_evalvec_spline1d(bs_spline1d *spline, bs_array x, bs_array out)
     void bs_free_spline1d(bs_spline1d *spline)
 
 
@@ -93,12 +94,20 @@ cdef class Spline1D:
 
     def __call__(self, double[:] x):
         cdef double[:] outview
-        cdef int i
+        cdef int i, status
         
         out = np.empty(len(x))
         outview = out
-        for i in range(len(x)):
-            outview[i] = bs_eval_spline1d(self.ptr, x[i])
+
+        cdef bs_array x_arr = bs_array(&x[0], x.shape[0],
+                                       x.strides[0]//sizeof(double))
+        cdef bs_array out_arr = bs_array(&outview[0], outview.shape[0],
+                                         outview.strides[0]//sizeof(double))
+
+        status = bs_evalvec_spline1d(self.ptr, x_arr, out_arr);
+
+        if status:
+            raise ValueError("input array must be monotonically increasing")
 
         return out
 

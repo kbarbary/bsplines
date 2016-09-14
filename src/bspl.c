@@ -3,21 +3,26 @@
 
 //-----------------------------------------------------------------------------
 // search functions
+//
+// These all return i such that x>= values[i] and x<values[i+1].
+// Return -1 if x < values[0].
+// Return n-1 if x >= values[n-1].
 //-----------------------------------------------------------------------------
 
-// return i such that x >= values[i] and x < values[i+1].  The first
-// value that will be tested is x >= values[start], and start - 1 will
-// be returned if x <= values[start].
+// This version assumes we already know that x >= values[start].
+// (Use start=-1 for no knowledge.)
 int find_index_from(double *values, int n, double x, int start)
 {
-  int i = start;
+  if (start < -1) start = -1;
+  if (start > n-1) start = n-1;
+  int i = start + 1;
   while (i < n && x >= values[i]) i++;
   return i-1;
 }
 
 int find_index(double *values, int n, double x)
 {
-  return find_index_from(values, n, x, 0);
+  return find_index_from(values, n, x, -1);
 }
 
 // find index using binary search
@@ -26,7 +31,7 @@ int find_index_binary(double *values, int n, double x)
   int lo = 0;
   int hi = n;
   int mid = n/2;
-
+  
   if (x < values[0]) return -1;
   if (x >= values[n-1]) return n-1;
 
@@ -475,3 +480,35 @@ double bs_eval_spline1d(bs_spline1d *spline, double x)
           spline->coeffs[i+3] * b3_0(x, i,   spline->knots));
 }
 
+int bs_evalvec_spline1d(bs_spline1d *spline, bs_array x, bs_array out)
+{
+  // ensure that x is increasing
+  if (!is_monotonic(x)) return 1;
+  
+  // for first index, it could be anywhere, so use binary search
+  int i = find_index_binary(spline->knots, spline->n, x.data[0]);
+
+  double xval;
+  for (int j=0; j<x.length; j++) {
+    xval = x.data[j*x.stride];
+    i = find_index_from(spline->knots, spline->n, xval, i);
+
+    // for now, just return constant value outside spline range.
+    if (i == -1) {
+      i = 0;
+      xval = spline->knots[0];
+    }
+    if (i == spline->n - 1) {
+      i = spline->n - 2;
+      xval = spline->knots[spline->n - 1];
+    }
+
+    out.data[j*out.stride] =
+      (spline->coeffs[i]   * b3_3(xval, i-3, spline->knots) +
+       spline->coeffs[i+1] * b3_2(xval, i-2, spline->knots) +
+       spline->coeffs[i+2] * b3_1(xval, i-1, spline->knots) +
+       spline->coeffs[i+3] * b3_0(xval, i,   spline->knots));
+  }
+
+  return 0;
+}
