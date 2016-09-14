@@ -1,0 +1,19 @@
+# cython-generated
+bsplines.c
+
+# python
+build
+__pycache__
+.cache
+
+# C
+src/*.o
+src/lib*.so*
+src/lib*.a
+src/runtests
+
+# emacs
+*~
+
+# sphinx
+docs/_build
