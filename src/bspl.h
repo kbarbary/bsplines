@@ -2,11 +2,11 @@ typedef struct {
   double *data;
   int length;
   int stride;
-} bspl_array;
+} bs_array;
 
-double bspl_b3(double x, int i, double *t);
-double bspl_db3(double x, int i, double *t);
-double bspl_ddb3(double x, int i, double *t);
+double bs_b3(double x, int i, double *t);
+double bs_db3(double x, int i, double *t);
+double bs_ddb3(double x, int i, double *t);
 
 //-----------------------------------------------------------------------------
 // Boundary conditions
@@ -15,12 +15,12 @@ double bspl_ddb3(double x, int i, double *t);
 typedef struct {
   int deriv;
   double value;
-} bspl_bc;
+} bs_bc;
 
 typedef struct {
-  bspl_bc left;
-  bspl_bc right;
-} bspl_bcs;
+  bs_bc left;
+  bs_bc right;
+} bs_bcs;
 
 //-----------------------------------------------------------------------------
 // 1-d splines
@@ -30,8 +30,8 @@ typedef struct {
   double *knots;
   double *coeffs;
   int n;
-} bspl_spline1d;
+} bs_spline1d;
 
-bspl_spline1d* bspl_create_spline1d(bspl_array x, bspl_array y, bspl_bcs bcs);
-double bspl_eval_spline1d(bspl_spline1d *spline, double x);
-void bspl_free_spline1d(bspl_spline1d *spline);
+bs_spline1d* bs_create_spline1d(bs_array x, bs_array y, bs_bcs bcs);
+double bs_eval_spline1d(bs_spline1d *spline, double x);
+void bs_free_spline1d(bs_spline1d *spline);

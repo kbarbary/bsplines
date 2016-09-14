@@ -38,7 +38,7 @@ int allclose(double *x, double *y, int n)
   return 1;
 }
 
-int test_bspl_b3()
+int test_bs_b3()
 {
   int N = 61;
   double knots[5] = {0., 1.3, 2., 3., 4.};
@@ -47,7 +47,7 @@ int test_bspl_b3()
   double *ytrue = malloc(N * sizeof(double));
   
   for (int j=0; j<N; j++) {
-    y[j] = bspl_b3(x[j], 0, knots);
+    y[j] = bs_b3(x[j], 0, knots);
     ytrue[j] = b(3, 0, knots, x[j]);
   }
 
@@ -110,12 +110,12 @@ int test_find_index_binary()
 }
 
 
-int is_monotonic(bspl_array x);
+int is_monotonic(bs_array x);
 
 int test_is_monotonic()
 {
   double data[5] = {0., 1., 2., 3., 4.};
-  bspl_array x = {data, 5, 1};
+  bs_array x = {data, 5, 1};
 
   if (is_monotonic(x) != 1) return 1;
 
@@ -150,7 +150,7 @@ int main()
   int total = 0;
   int failed = 0;
 
-  RUNTEST(test_bspl_b3);
+  RUNTEST(test_bs_b3);
   RUNTEST(test_bfuncs);
   RUNTEST(test_find_index_binary);
   RUNTEST(test_is_monotonic);

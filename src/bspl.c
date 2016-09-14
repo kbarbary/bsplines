@@ -88,7 +88,7 @@ double b3_3(double x, int i, double *t) {
 }
 
 // b_{3,i}(x)
-double bspl_b3(double x, int i, double *t) {
+double bs_b3(double x, int i, double *t) {
   if (x < t[i]) return 0.0;
   else if (x < t[i+1]) return b3_0(x, i, t);
   else if (x < t[i+2]) return b3_1(x, i, t);
@@ -149,7 +149,7 @@ double db3_3(double x, int i, double *t) {
     ((t[i+4] - t[i+1]) * (t[i+4] - t[i+2]) * (t[i+4] - t[i+3]));
 }
 
-double bspl_db3(double x, int i, double *t) {
+double bs_db3(double x, int i, double *t) {
   if (x < t[i]) return 0.0;
   else if (x < t[i+1]) return db3_0(x, i, t);
   else if (x < t[i+2]) return db3_1(x, i, t);
@@ -230,7 +230,7 @@ double ddb3_3(double x, int i, double *t) {
     ((t[i+4] - t[i+1]) * (t[i+4] - t[i+2]) * (t[i+4] - t[i+3]));
 }
 
-double bspl_ddb3(double x, int i, double *t) {
+double bs_ddb3(double x, int i, double *t) {
   if (x < t[i]) return 0.0;
   else if (x < t[i+1]) return ddb3_0(x, i, t);
   else if (x < t[i+2]) return ddb3_1(x, i, t);
@@ -246,7 +246,7 @@ double bspl_ddb3(double x, int i, double *t) {
 
 // fill spline knots based on x array (includes padding on either
 // end of array).
-double* alloc_knots(bspl_array x)
+double* alloc_knots(bs_array x)
 {
   int N = x.length;
   double *knots = malloc((N + 5) * sizeof(double));
@@ -360,10 +360,10 @@ void solve(double* restrict A, double* restrict b, int n)
 }
 
 //-----------------------------------------------------------------------------
-// bspl_array
+// bs_array
 //-----------------------------------------------------------------------------
 
-int is_monotonic(bspl_array x)
+int is_monotonic(bs_array x)
 {
   int ok = 1;
   for (int i=1; i<x.length; i++) {
@@ -376,7 +376,7 @@ int is_monotonic(bspl_array x)
 //-----------------------------------------------------------------------------
 // spline1d
 //-----------------------------------------------------------------------------
-bspl_spline1d* bspl_create_spline1d(bspl_array x, bspl_array y, bspl_bcs bcs)
+bs_spline1d* bs_create_spline1d(bs_array x, bs_array y, bs_bcs bcs)
 {
   // checks
   if (!((x.length == y.length) &&
@@ -385,7 +385,7 @@ bspl_spline1d* bspl_create_spline1d(bspl_array x, bspl_array y, bspl_bcs bcs)
         is_monotonic(x)))
     return NULL;
 
-  bspl_spline1d* spline = malloc(sizeof(bspl_spline1d));
+  bs_spline1d* spline = malloc(sizeof(bs_spline1d));
 
   int N = x.length;
   int M = N + 2;
@@ -443,7 +443,7 @@ bspl_spline1d* bspl_create_spline1d(bspl_array x, bspl_array y, bspl_bcs bcs)
   return spline;
 }
 
-void bspl_free_spline1d(bspl_spline1d* spline)
+void bs_free_spline1d(bs_spline1d* spline)
 {
   if (spline != NULL) {
     free_knots(spline->knots);
@@ -453,7 +453,7 @@ void bspl_free_spline1d(bspl_spline1d* spline)
 }
 
 
-double bspl_eval_spline1d(bspl_spline1d *spline, double x)
+double bs_eval_spline1d(bs_spline1d *spline, double x)
 {
   int i = find_index_binary(spline->knots, spline->n, x);
 
