@@ -70,16 +70,18 @@ cdef class Spline1D:
         cdef double[:] y_ = np.require(y, dtype=np.dtype(np.double))
 
         cdef bs_array x_arr = bs_array(&x_[0], x_.shape[0],
-                                           x_.strides[0]//sizeof(double))
+                                       x_.strides[0]//sizeof(double))
         cdef bs_array y_arr = bs_array(&y_[0], y_.shape[0],
-                                           y_.strides[0]//sizeof(double))
+                                       y_.strides[0]//sizeof(double))
 
         # parse boundary conditions
         cdef bs_bcs bcs_ = bs_bcs(bs_bc(bcs[0][0], bcs[0][1]),
-                                      bs_bc(bcs[1][0], bcs[1][1]))
+                                  bs_bc(bcs[1][0], bcs[1][1]))
         
         self.ptr = bs_create_spline1d(x_arr, y_arr, bcs_)
-
+        if self.ptr is NULL:
+            raise ValueError("input x values not monotonically increasing?")
+        
 
     #def __init__(self, np.ndarray x, np.ndarray y):
     #    pass
@@ -89,8 +91,16 @@ cdef class Spline1D:
         if self.ptr is not NULL:
             bs_free_spline1d(self.ptr)
 
-    def __call__(self, double x):
-        return bs_eval_spline1d(self.ptr, x)
+    def __call__(self, double[:] x):
+        cdef double[:] outview
+        cdef int i
+        
+        out = np.empty(len(x))
+        outview = out
+        for i in range(len(x)):
+            outview[i] = bs_eval_spline1d(self.ptr, x[i])
+
+        return out
 
     def coefficients(self):
         cdef double[:] view = <double[:(self.ptr.n+2)]>(self.ptr.coeffs)

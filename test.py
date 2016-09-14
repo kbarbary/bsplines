@@ -72,7 +72,7 @@ def test_spline1d_cubic():
     spline = bsplines.Spline1D(x, y, bcs=bcs)
 
     xtest = np.linspace(-1., 4., 101)
-    ytest = np.array([spline(xi) for xi in xtest])
+    ytest = spline(xtest)
 
     #from matplotlib import pyplot as plt
     #plt.plot(x, y, ls='None', marker='o')
