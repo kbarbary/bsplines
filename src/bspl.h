@@ -1,7 +1,7 @@
 typedef struct {
   double *data;
-  int stride;
   int length;
+  int stride;
 } bspl_array;
 
 double bspl_b3(double x, int i, double *t);

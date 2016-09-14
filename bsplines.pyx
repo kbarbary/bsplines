@@ -14,8 +14,8 @@ cdef extern from "bspl.h":
 
     ctypedef struct bspl_array:
         double *data
-        int stride
         int length
+        int stride
 
     ctypedef struct bspl_spline1d:
         double *knots
@@ -69,12 +69,10 @@ cdef class Spline1D:
         cdef double[:] x_ = np.require(x, dtype=np.dtype(np.double))
         cdef double[:] y_ = np.require(y, dtype=np.dtype(np.double))
 
-        cdef bspl_array x_arr = bspl_array(&x_[0],
-                                           x_.strides[0]//sizeof(double),
-                                           x_.shape[0])
-        cdef bspl_array y_arr = bspl_array(&y_[0],
-                                           y_.strides[0]//sizeof(double),
-                                           y_.shape[0])
+        cdef bspl_array x_arr = bspl_array(&x_[0], x_.shape[0],
+                                           x_.strides[0]//sizeof(double))
+        cdef bspl_array y_arr = bspl_array(&y_[0], y_.shape[0],
+                                           y_.strides[0]//sizeof(double))
 
         # parse boundary conditions
         cdef bspl_bcs bcs_ = bspl_bcs(bspl_bc(bcs[0][0], bcs[0][1]),

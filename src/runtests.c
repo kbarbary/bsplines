@@ -99,12 +99,6 @@ int test_find_index_binary()
 {
   double knots[9] = {0., 0.6, 1.0, 1.1, 1.5, 1.9, 2.3, 3., 4.};
 
-
-  printf("%d\n", find_index_binary(knots, 9, 0.));
-  printf("%d\n", find_index_binary(knots, 9, 4.));
-  printf("%d\n", find_index_binary(knots, 9, -0.000001));
-  printf("%d\n", find_index_binary(knots, 9, 0.99999));
-
   if ((find_index_binary(knots, 9, 0.) == 0) &&
       (find_index_binary(knots, 9, 4.) == 8) &&
       (find_index_binary(knots, 9, -0.0000001) == -1) &&
@@ -114,7 +108,33 @@ int test_find_index_binary()
   else
     return 1;
 }
-              
+
+
+int is_monotonic(bspl_array x);
+
+int test_is_monotonic()
+{
+  double data[5] = {0., 1., 2., 3., 4.};
+  bspl_array x = {data, 5, 1};
+
+  if (is_monotonic(x) != 1) return 1;
+
+  x.data[1] = 0.;
+  if (is_monotonic(x) != 1) return 1;
+
+  x.data[3] = 2.;
+  if (is_monotonic(x) != 1) return 1;
+
+  x.data[1] = -0.00001;
+  if (is_monotonic(x) != 0) return 1;
+
+  x.data[3] = 1.99999;
+  if (is_monotonic(x) != 0) return 1;
+
+  return 0;
+}
+
+
 #define RUNTEST(name)                           \
   {status = name();                             \
     printf(#name "() ");                        \
@@ -133,6 +153,7 @@ int main()
   RUNTEST(test_bspl_b3);
   RUNTEST(test_bfuncs);
   RUNTEST(test_find_index_binary);
+  RUNTEST(test_is_monotonic);
   
   printf("\n");
   if (failed > 0) printf("\033[31;1m");

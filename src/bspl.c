@@ -360,16 +360,33 @@ void solve(double* restrict A, double* restrict b, int n)
 }
 
 //-----------------------------------------------------------------------------
-// 
+// bspl_array
+//-----------------------------------------------------------------------------
+
+int is_monotonic(bspl_array x)
+{
+  int ok = 1;
+  for (int i=1; i<x.length; i++) {
+    ok &= (x.data[i*x.stride] >= x.data[(i-1)*x.stride]);
+  }
+  return ok;
+}
+
+
+//-----------------------------------------------------------------------------
+// spline1d
+//-----------------------------------------------------------------------------
 bspl_spline1d* bspl_create_spline1d(bspl_array x, bspl_array y, bspl_bcs bcs)
 {
+  // checks
+  if (!((x.length == y.length) &&
+        (bcs.left.deriv == 1 || bcs.left.deriv == 2) &&
+        (bcs.right.deriv == 1 || bcs.right.deriv == 2) &&
+        is_monotonic(x)))
+    return NULL;
+
   bspl_spline1d* spline = malloc(sizeof(bspl_spline1d));
 
-  // TODO: assert x and y same length
-  // TODO: check BC deriv is 1 or 2
-  // TODO: specify behavior outside bounds
-  // TODO: check that arrays are monotonically increasing.
-  
   int N = x.length;
   int M = N + 2;
   
@@ -438,15 +455,23 @@ void bspl_free_spline1d(bspl_spline1d* spline)
 
 double bspl_eval_spline1d(bspl_spline1d *spline, double x)
 {
-  // TODO: behavior outside spline range!
-  // for now assumes x is in spline range.
-
   int i = find_index_binary(spline->knots, spline->n, x);
+
+  // for now, just return constant value outside spline range.
+  if (i == -1) {
+    i = 0;
+    x = spline->knots[0];
+  }
+  if (i == spline->n - 1) {
+    i = spline->n - 2;
+    x = spline->knots[spline->n - 1];
+  }
 
   // assuming t[i] <= x < t[i+1],
   // spline value is given by c_{i-3} * b_{i-3}(x) + c_{i-2} * b_{i-2}(x) + ...
   return (spline->coeffs[i]   * b3_3(x, i-3, spline->knots) +
           spline->coeffs[i+1] * b3_2(x, i-2, spline->knots) +
           spline->coeffs[i+2] * b3_1(x, i-1, spline->knots) +
-          spline->coeffs[i+3] * b3_0(x, i, spline->knots));
+          spline->coeffs[i+3] * b3_0(x, i,   spline->knots));
 }
+

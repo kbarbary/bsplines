@@ -74,6 +74,8 @@ def test_spline1d_cubic():
     xtest = np.linspace(-1., 4., 101)
     ytest = np.array([spline(xi) for xi in xtest])
 
+    print(ytest[-5:])
+    print((xtest**3)[-5:])
     
     #from matplotlib import pyplot as plt
     #plt.plot(x, y, ls='None', marker='o')
