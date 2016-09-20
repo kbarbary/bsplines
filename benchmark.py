@@ -2,35 +2,61 @@
 
 import os
 from time import time
+from collections import OrderedDict
+import pickle
 
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
-import matplotlib.pyplot as plt
 
 from bsplines import Spline1D
 
-plt.style.use('bmh')
 
-os.makedirs("benchmarks", exist_ok=True)
+# -----------------------------------------------------------------------------
+# utilities
+# -----------------------------------------------------------------------------
 
-def plot_results(results, title, unit, fname):
-    fig, ax = plt.subplots()
+def print_results(results, title, unit):
+    """
+    Parameters
+    ----------
+    results : dict
+        Dictionary where key is spline name and value is a dictionary of
+        timing results. The dictionary contains keys ``sizes``, ``times``,
+        which are both arrays.
+    title : str
+        Axes title.
+    unit : str
+        Unit of ``sizes`` (e.g., knots or points).
+    """
 
-    for key, result in results.items():
-        throughputs = result['sizes'] / (1e6 * result['times'])
-        ax.semilogx(result['sizes'], throughputs, ls='-', label=key)
+    # check that all `sizes` arrays are the same.
+    allsizes = list(result['sizes'] for result in results.values())
+    for i in range(1, len(allsizes)):
+        if not np.all(allsizes[0] == allsizes[i]):
+            raise ValueError("Results must have same sizes for printing")
 
-    ax.set_xlabel(unit)
-    ax.set_ylabel("throughput ({} / us)".format(unit))
-    ax.set_title(title)
-    ax.legend(loc='upper left')
-    fig.savefig(os.path.join("benchmarks", fname))
-    plt.close(fig)
+    # header
+    print("\n" + title + " (ms)")
+    print("{:10s}".format(unit), end='')
+    for key in results.keys():
+        print("{:25s}".format(key), end='')
+    print("\n" + "-" * 60)
+    
+    sizes = allsizes[0]
+    for i in range(len(sizes)):
+        print("{:8d}  ".format(sizes[i]), end='')
+        for key in results.keys():
+            print("{:10.6f}".format(1000 * results[key]['times'][i]) + " "*15,
+                  end='')
+        print()
+
+    print("-"*60)
 
 
-# --------------------------------------------------------------------------
-# spline creation
-# --------------------------------------------------------------------------
+def save_results(results, fname):
+    with open(fname, 'wb') as f:
+        pickle.dump(results, f)
+
 
 def benchmark_creation_1d(cls, kwargs):
     sizes = np.array([10, 30, 100, 1000, 10000, 100000])
@@ -49,17 +75,6 @@ def benchmark_creation_1d(cls, kwargs):
             'nloops': nloops,
             'times': times}
 
-results = {
-    'bsplines.Spline1D': benchmark_creation_1d(Spline1D, {}),
-    'SciPy UnivariateSpline':
-    benchmark_creation_1d(InterpolatedUnivariateSpline, {'ext': 3, 'k': 3})
-}
-plot_results(results, "1-d spline creation", "knots", "1d_create.png")
-
-
-# ----------------------------------------------------------------------------
-# spline evaluation
-# ----------------------------------------------------------------------------
 
 def benchmark_eval_1d(cls, kwargs):
     sizes = np.array([10, 30, 100, 1000, 10000, 100000])
@@ -80,33 +95,26 @@ def benchmark_eval_1d(cls, kwargs):
             'nloops': nloops,
             'times': times}
 
-results = {
-    'bsplines.Spline1D': benchmark_eval_1d(Spline1D, {}),
-    'SciPy UnivariateSpline':
-    benchmark_eval_1d(InterpolatedUnivariateSpline, {'ext': 3, 'k': 3})
-}
-plot_results(results, "1-d spline evaluation", "points", "1d_eval.png")
+if __name__ == "__main__":
 
-x = np.linspace(0., 1000., 1000)
-xtest = np.linspace(0., 1000., 100000)
-y = np.sin(x)
+    # results stored here in pickle files for plotting in docs
+    os.makedirs("benchmarks", exist_ok=True)
 
-t0 = time()
-s = Spline1D(x, y)
-t = time() - t0
-print("create: {} s".format(t))
 
-t0 = time()
-s_scipy = InterpolatedUnivariateSpline(x, y, ext=3, k=3)
-t = time() - t0
-print("create scipy: {} s".format(t))
+    results = OrderedDict([
+        ('bsplines.Spline1D', benchmark_creation_1d(Spline1D, {})),
+        ('SciPy UnivariateSpline',
+         benchmark_creation_1d(InterpolatedUnivariateSpline, {'ext': 3, 'k': 3}))
+    ])
+    print_results(results, "1-d spline creation", "knots")
+    save_results(results, os.path.join("benchmarks", "1d_create.pik"))
 
-t0 = time()
-s(xtest)
-t = time() - t0
-print("eval: {} s".format(t))
 
-t0 = time()
-s_scipy(xtest)
-t = time() - t0
-print("eval scipy: {} s".format(t))
+    results = OrderedDict([
+        ('bsplines.Spline1D', benchmark_eval_1d(Spline1D, {})),
+        ('SciPy UnivariateSpline',
+         benchmark_eval_1d(InterpolatedUnivariateSpline, {'ext': 3, 'k': 3}))
+    ])
+
+    print_results(results, "1-d spline evaluation", "points")
+    save_results(results, os.path.join("benchmarks", "1d_eval.pik"))

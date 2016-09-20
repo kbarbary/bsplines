@@ -1,12 +1,14 @@
 import sys
 import os
 import sphinx_rtd_theme
+import matplotlib
 
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'sphinx.ext.mathjax',
-    'sphinx.ext.napoleon',]
+    'sphinx.ext.napoleon',
+    'matplotlib.sphinxext.plot_directive']
 
 html_theme = "sphinx_rtd_theme"
 html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]

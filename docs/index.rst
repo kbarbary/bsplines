@@ -7,7 +7,7 @@ BSplines is a Python package for fast cubic basis splines. For some mathematical
    :hidden:
 
    math
-
+   benchmarks
 
 API
 ---
