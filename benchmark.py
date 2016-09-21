@@ -3,7 +3,7 @@
 import os
 from time import time
 from collections import OrderedDict
-import pickle
+import json
 
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
@@ -32,7 +32,7 @@ def print_results(results, title, unit):
     # check that all `sizes` arrays are the same.
     allsizes = list(result['sizes'] for result in results.values())
     for i in range(1, len(allsizes)):
-        if not np.all(allsizes[0] == allsizes[i]):
+        if not allsizes[0] == allsizes[i]:
             raise ValueError("Results must have same sizes for printing")
 
     # header
@@ -53,9 +53,9 @@ def print_results(results, title, unit):
     print("-"*60)
 
 
-def save_results(results, fname):
-    with open(fname, 'wb') as f:
-        pickle.dump(results, f)
+def save_results(results, title, unit, fname):
+    with open(fname, 'w') as f:
+        json.dump({'title': title, 'unit': unit, 'results': results}, f)
 
 
 def benchmark_creation_1d(cls, kwargs):
@@ -71,9 +71,9 @@ def benchmark_creation_1d(cls, kwargs):
             cls(x, y, **kwargs)
         times[i] = (time() - t0) / nloops[i]
 
-    return {'sizes': sizes,
-            'nloops': nloops,
-            'times': times}
+    return {'sizes': sizes.tolist(),
+            'nloops': nloops.tolist(),
+            'times': times.tolist()}
 
 
 def benchmark_eval_1d(cls, kwargs):
@@ -91,9 +91,9 @@ def benchmark_eval_1d(cls, kwargs):
             s(xtest)
         times[i] = (time() - t0) / nloops[i]
 
-    return {'sizes': sizes,
-            'nloops': nloops,
-            'times': times}
+    return {'sizes': sizes.tolist(),
+            'nloops': nloops.tolist(),
+            'times': times.tolist()}
 
 if __name__ == "__main__":
 
@@ -107,7 +107,8 @@ if __name__ == "__main__":
          benchmark_creation_1d(InterpolatedUnivariateSpline, {'ext': 3, 'k': 3}))
     ])
     print_results(results, "1-d spline creation", "knots")
-    save_results(results, os.path.join("benchmarks", "1d_create.pik"))
+    save_results(results, "1-d spline creation", "knots",
+                 os.path.join("benchmarks", "1d_create.json"))
 
 
     results = OrderedDict([
@@ -117,4 +118,5 @@ if __name__ == "__main__":
     ])
 
     print_results(results, "1-d spline evaluation", "points")
-    save_results(results, os.path.join("benchmarks", "1d_eval.pik"))
+    save_results(results, "1-d spline evaluation", "points",
+                 os.path.join("benchmarks", "1d_eval.json"))

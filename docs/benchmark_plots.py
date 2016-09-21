@@ -1,4 +1,4 @@
-import pickle
+import json
 
 import matplotlib.pyplot as plt
 
@@ -20,7 +20,8 @@ def benchmark_figure(results, title, unit):
     fig, ax = plt.subplots()
 
     for key, result in results.items():
-        throughputs = result['sizes'] / (1e6 * result['times'])
+        throughputs = [result['sizes'][i] / (1e6 * result['times'][i])
+                       for i in range(len(result['times']))]
         ax.semilogx(result['sizes'], throughputs, ls='-', label=key)
 
     ax.set_xlabel(unit)
@@ -31,9 +32,10 @@ def benchmark_figure(results, title, unit):
     return fig
 
 
-def plot(pikname, title, unit):
-    with open(pikname, 'rb') as f:
-        results = pickle.load(f)
-    return benchmark_figure(results, title, unit)
+def plot(json_name):
+    with open(json_name, 'r') as f:
+        benchmark = json.load(f)
+    return benchmark_figure(benchmark['results'], benchmark['title'],
+                            benchmark['unit'])
 
 
