@@ -7,7 +7,7 @@ __version__ = "0.1.0"
 __all__ = ["b3", "Spline1D"]
 
 
-cdef extern from "bspl.h":
+cdef extern from "bs.h":
     double bs_b3(double x, int i, double *t)
     double bs_db3(double x, int i, double *t)
     double bs_ddb3(double x, int i, double *t)

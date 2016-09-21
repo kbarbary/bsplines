@@ -14,8 +14,8 @@ else:
     USE_CYTHON = False
     fname = "bsplines.c"
 
-sourcefiles = [fname, os.path.join("src", "bspl.c")]
-headerfiles = [os.path.join("src", "bspl.h")]
+sourcefiles = [fname, os.path.join("src", "bs.c")]
+headerfiles = [os.path.join("src", "bs.h")]
 include_dirs=[numpy.get_include(), "src"]
 extensions = [Extension("bsplines", sourcefiles, include_dirs=include_dirs,
                         depends=headerfiles)]
