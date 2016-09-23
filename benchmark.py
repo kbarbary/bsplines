@@ -60,7 +60,7 @@ def save_results(results, title, unit, fname):
 
 def benchmark_creation_1d(cls, kwargs):
     sizes = np.array([10, 30, 100, 1000, 10000, 100000])
-    nloops = np.array([max(100000 // sz, 1) for sz in sizes])
+    nloops = np.array([max(2000000 // sz, 1) for sz in sizes])
     times = np.empty_like(sizes, dtype=np.float64)
     for i, n in enumerate(sizes):
         x = np.linspace(0., float(n), n)
@@ -78,7 +78,7 @@ def benchmark_creation_1d(cls, kwargs):
 
 def benchmark_eval_1d(cls, kwargs):
     sizes = np.array([10, 30, 100, 1000, 10000, 100000])
-    nloops = np.array([max(100000 // sz, 1) for sz in sizes])
+    nloops = np.array([max(2000000 // sz, 1) for sz in sizes])
     times = np.empty_like(sizes, dtype=np.float64)
     for i, n in enumerate(sizes):
         x = np.linspace(0., 1000., 1000)

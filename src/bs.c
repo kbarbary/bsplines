@@ -1,5 +1,5 @@
 #include <stdlib.h>
-#include <bspl.h>
+#include <bs.h>
 
 //-----------------------------------------------------------------------------
 // search functions
@@ -157,20 +157,20 @@ void b3vec_pre(double x, int i, double *t, double *dtinv, double out[4])
   double dx4 = t[i+2] - x;
   double dx5 = t[i+3] - x;
   
-  double dtinv1 = dtinv[3*(i-2)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
-  double dtinv2 = dtinv[3*i+2]     * dtinv[3*i+1]     * dtinv[3*i];
-
-  double c1 = dx3 * dx3 * dtinv1;
-  double c2 = dx2 * dx2 * dtinv2;
-  double c3 = dx3 * dtinv[3*(i-1)+1] * dtinv[3*i];
-  double c4 = dx2 * dtinv[3*i+1] * dtinv[3*i];
-    
-  out[0] = dx3 * c1;
-  out[1] = dx0 * c1 + dx4 * dtinv[3*(i-1)+2] * (dx1 * c3 + dx4 * c4);    
-  out[2] = dx5 * c2 + dx1 * dtinv[3*(i-1)+2] * (dx1 * c3 + dx4 * c4);
-  out[3] = dx2 * c2;
+  double c1 = dtinv[3*(i-2)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double c2 = dtinv[3* i   +2] * dtinv[3* i   +1] * dtinv[3*i];
+  double c3 = dtinv[3*(i-1)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double c4 = dtinv[3*(i-1)+2] * dtinv[3* i   +1] * dtinv[3*i];
+  
+  double tmp1 = dx3 * dx3 * c1;
+  double tmp2 = dx2 * dx2 * c2;
+  double tmp3 = dx1 * dx3 * c3 + dx4 * dx2 * c4;
+  
+  out[0] = dx3 * tmp1;
+  out[1] = dx0 * tmp1 + dx4 * tmp3;
+  out[2] = dx5 * tmp2 + dx1 * tmp3;
+  out[3] = dx2 * tmp2;
 }
-
 
 //-----------------------------------------------------------------------------
 // first derivatives of above functions
@@ -469,17 +469,19 @@ int is_monotonic(bs_array x)
 //-----------------------------------------------------------------------------
 // spline1d
 //-----------------------------------------------------------------------------
-bs_spline1d* bs_create_spline1d(bs_array x, bs_array y, bs_bcs bcs)
+bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
+                                bs_exts exts, bs_spline1d **out)
 {
+  // Initialize output pointer, in case we error out.
+  *out = NULL;
+  
   // checks
-  if (!((x.length == y.length) &&
-        (bcs.left.deriv == 1 || bcs.left.deriv == 2) &&
-        (bcs.right.deriv == 1 || bcs.right.deriv == 2) &&
-        is_monotonic(x)))
-    return NULL;
+  if (x.length != y.length) return BS_LENGTHMISMATCH;
+  if (!is_monotonic(x)) return BS_NOTMONOTONIC;
 
   bs_spline1d* spline = malloc(sizeof(bs_spline1d));
-
+  
+  
   int N = x.length;
   int M = N + 2;
   
@@ -491,12 +493,12 @@ bs_spline1d* bs_create_spline1d(bs_array x, bs_array y, bs_bcs bcs)
   double *A = malloc(3 * M * sizeof(double));
 
   // The first row is the constraint on a derivative of the spline at x[0]
-  if (bcs.left.deriv == 1) {
+  if (bcs.left.type == BS_DERIV1) {
     A[0] = db3_3(spline->knots[0], -3, spline->knots);
     A[1] = db3_2(spline->knots[0], -2, spline->knots);
     A[2] = db3_1(spline->knots[0], -1, spline->knots);
   }
-  else {  // assume 2nd deriv
+  else {  // type must be BS_DERIV2
     A[0] = ddb3_3(spline->knots[0], -3, spline->knots);
     A[1] = ddb3_2(spline->knots[0], -2, spline->knots);
     A[2] = ddb3_1(spline->knots[0], -1, spline->knots);
@@ -511,12 +513,12 @@ bs_spline1d* bs_create_spline1d(bs_array x, bs_array y, bs_bcs bcs)
   }
 
   // derivatives at final point
-  if (bcs.left.deriv == 1) {
+  if (bcs.right.type == BS_DERIV1) {
     A[3*(M-1) + 0] = db3_3(spline->knots[N-1], (N-1)-3, spline->knots);
     A[3*(M-1) + 1] = db3_2(spline->knots[N-1], (N-1)-2, spline->knots);
     A[3*(M-1) + 2] = db3_1(spline->knots[N-1], (N-1)-1, spline->knots);
   }
-  else {  // assume 2nd deriv
+  else {  // type must be BS_DERIV2
     A[3*(M-1) + 0] = ddb3_3(spline->knots[N-1], (N-1)-3, spline->knots);
     A[3*(M-1) + 1] = ddb3_2(spline->knots[N-1], (N-1)-2, spline->knots);
     A[3*(M-1) + 2] = ddb3_1(spline->knots[N-1], (N-1)-1, spline->knots);
@@ -534,10 +536,11 @@ bs_spline1d* bs_create_spline1d(bs_array x, bs_array y, bs_bcs bcs)
   free(A);
   spline->coeffs = b;
 
-  return spline;
+  *out = spline;
+  return BS_OK;
 }
 
-void bs_free_spline1d(bs_spline1d* spline)
+void bs_spline1d_free(bs_spline1d* spline)
 {
   if (spline != NULL) {
     free_knots(spline->knots);
@@ -548,32 +551,11 @@ void bs_free_spline1d(bs_spline1d* spline)
 }
 
 
-double bs_eval_spline1d(bs_spline1d *spline, double x)
-{
-  int i = find_index_binary(spline->knots, spline->n, x);
 
-  // for now, just return constant value outside spline range.
-  if (i == -1) {
-    i = 0;
-    x = spline->knots[0];
-  }
-  if (i == spline->n - 1) {
-    i = spline->n - 2;
-    x = spline->knots[spline->n - 1];
-  }
-
-  // assuming t[i] <= x < t[i+1],
-  // spline value is given by c_{i-3} * b_{i-3}(x) + c_{i-2} * b_{i-2}(x) + ...
-  return (spline->coeffs[i]   * b3_3(x, i-3, spline->knots) +
-          spline->coeffs[i+1] * b3_2(x, i-2, spline->knots) +
-          spline->coeffs[i+2] * b3_1(x, i-1, spline->knots) +
-          spline->coeffs[i+3] * b3_0(x, i,   spline->knots));
-}
-
-int bs_evalvec_spline1d(bs_spline1d *spline, bs_array x, bs_array out)
+bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
 {
   // ensure that x is increasing
-  if (!is_monotonic(x)) return 1;
+  if (!is_monotonic(x)) return BS_NOTMONOTONIC;
   
   // for first index, it could be anywhere, so use binary search
   int i = find_index_binary(spline->knots, spline->n, x.data[0]);
@@ -586,10 +568,20 @@ int bs_evalvec_spline1d(bs_spline1d *spline, bs_array x, bs_array out)
 
     // for now, just return constant value outside spline range.
     if (i == -1) {
+      /*if (spline->ood.left == BS_OOD_EXTRAP) {
+        i = 0;
+      }  
+      else if (spline->ood.left == BS_OOD_CONST) {
+        out.data[j * out.stride] = spline->od.left.value;
+        continue;
+      }
+      else if (spline->ood.left == BS_OOD_RAISE) {
+        return BS_DOMAIN_ERROR;
+        } */
       i = 0;
       xval = spline->knots[0];
     }
-    if (i == spline->n - 1) {
+    else if (i == spline->n - 1) {
       i = spline->n - 2;
       xval = spline->knots[spline->n - 1];
     }
@@ -601,5 +593,22 @@ int bs_evalvec_spline1d(bs_spline1d *spline, bs_array x, bs_array out)
                               spline->coeffs[i+3] * b3vals[3]);
   }
 
-  return 0;
+  return BS_OK;
 }
+
+// magic function:
+//status = func(spline, xval, *val)
+
+// extrapolate: set i=0, 
+// out-of-bounds behavior options:
+// extrapolate:
+// i = 0 and continue
+// call: func(xval, i, spline)
+
+// raise:
+// status = BS_DOMAIN_ERROR
+
+// const:
+// y = spline->oob_val
+
+// 

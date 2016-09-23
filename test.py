@@ -27,7 +27,7 @@ def db(k, x, i, t):
             -1.0 / (t[i+k+1] - t[i+1]) * b(k-1, x, i+1, t))
 
 def ddb(k, x, i, t):
-    """First derivative of B-spline of order k at the i-th index."""
+    """Second derivative of B-spline of order k at the i-th index."""
 
     if k == 0:
         return 0.0
@@ -64,21 +64,24 @@ def test_ddb3():
     assert_allclose(y, y_true)
 
 def test_spline1d_cubic():
-    x = np.linspace(-1., 4., 6)
+    x = np.array([-1., -0.5, 0.5, 2.2, 3.8, 4.])
     y = x**3
 
     # 2nd deriv boundary conditions from true function
-    bcs = ((2, 6. * x[0]), (2, 6. * x[-1]))
-    spline = bsplines.Spline1D(x, y, bcs=bcs)
+    bcs = (("deriv2", 6. * x[0]), ("deriv2", 6. * x[-1]))
+    spline = bsplines.Spline1D(x, y, bc=bcs)
 
     xtest = np.linspace(-1., 4., 101)
+    ytest_true = xtest**3
     ytest = spline(xtest)
 
     #from matplotlib import pyplot as plt
     #plt.plot(x, y, ls='None', marker='o')
     #plt.plot(xtest, ytest, marker='None', ls='-')
     #plt.show()
+    
+    for i in range(len(ytest)):
+        print(xtest[i], ytest_true[i], ytest[i])
+    assert_allclose(ytest, ytest_true)
 
-    assert_allclose(ytest, xtest**3)
-
-test_spline1d_cubic()
+#test_spline1d_cubic()

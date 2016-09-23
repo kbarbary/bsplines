@@ -8,34 +8,107 @@ __all__ = ["b3", "Spline1D"]
 
 
 cdef extern from "bs.h":
-    double bs_b3(double x, int i, double *t)
-    double bs_db3(double x, int i, double *t)
-    double bs_ddb3(double x, int i, double *t)
+    ctypedef enum bs_errorcode:
+        BS_OK           = 0
+        BS_OUTOFMEMORY  = 1
+        BS_DOMAINERROR  = 2
+        BS_NOTMONOTONIC = 3
+        BS_LENGTHMISMATCH = 4
 
     ctypedef struct bs_array:
         double *data
         int length
         int stride
 
-    ctypedef struct bs_spline1d:
-        double *knots
-        double *coeffs
-        int n
+    double bs_b3(double x, int i, double *t)
+    double bs_db3(double x, int i, double *t)
+    double bs_ddb3(double x, int i, double *t)
 
+    ctypedef enum bs_bctype:
+        BS_DERIV1
+        BS_DERIV2
+        
     ctypedef struct bs_bc:
-        int deriv
+        bs_bctype type
         double value
 
     ctypedef struct bs_bcs:
         bs_bc left
         bs_bc right
 
-    bs_spline1d* bs_create_spline1d(bs_array x, bs_array y, bs_bcs bcs)
-    double bs_eval_spline1d(bs_spline1d *spline, double x)
-    int bs_evalvec_spline1d(bs_spline1d *spline, bs_array x, bs_array out)
-    void bs_free_spline1d(bs_spline1d *spline)
+    ctypedef enum bs_exttype:
+        BS_EXTRAPOLATE
+        BS_CONSTANT
+        BS_RAISE
+
+    ctypedef struct bs_ext:
+        bs_exttype type
+        double value
+
+    ctypedef struct bs_exts:
+        bs_ext left
+        bs_ext right
+        
+    ctypedef struct bs_spline1d:
+        double *knots
+        double *coeffs
+        int n
+
+    bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs, bs_exts exts, bs_spline1d **out)
+    bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
+    void bs_spline1d_free(bs_spline1d *spline)
 
 
+class DomainError(Exception):
+    pass
+
+#------------------------------------------------------------------------------
+# helpers
+
+cdef int assert_ok(bs_errorcode code) except -1:
+    """raise an exception of the error code is not OK"""
+    if code == BS_OK:
+        return 0
+    elif code == BS_OUTOFMEMORY:
+        raise MemoryError()
+    elif code == BS_DOMAINERROR:
+        raise DomainError()
+    elif code == BS_NOTMONOTONIC:
+        raise ValueError("input array(s) not monotonically increasing")
+    elif code == BS_LENGTHMISMATCH:
+        raise ValueError("input arrays have different lengths")
+    else:
+        raise Exception("unrecognized error")
+
+
+cdef int parse_boundary_conditions(pybc, bs_bcs *out) except -1:
+    """Parse boundary conditions"""
+    cdef bs_bctype lefttype, righttype
+    
+    if pybc == "natural":
+        out.left = out.right = bs_bc(BS_DERIV2, 0.0)
+    elif len(pybc) == 2:
+        left, right = pybc
+
+        if left[0] == "deriv1":
+            lefttype = BS_DERIV1
+        else:
+            lefttype = BS_DERIV2
+        out.left = bs_bc(lefttype, left[1])
+
+        if right[0] == "deriv1":
+            righttype = BS_DERIV1
+        else:
+            righttype = BS_DERIV2
+        out.right = bs_bc(righttype, right[1])
+
+    else:
+        raise ValueError("unrecognized boundary condition: " + repr(pybc))
+
+
+#------------------------------------------------------------------------------
+# utils
+    
 def b3(double x, int i, double[:] t):    
     return bs_b3(x, i, &t[0]);
 
@@ -45,6 +118,9 @@ def db3(double x, int i, double[:] t):
 def ddb3(double x, int i, double[:] t):    
     return bs_ddb3(x, i, &t[0]);
 
+
+# -----------------------------------------------------------------------------
+# 1-d spline
 
 cdef class Spline1D:
     """
@@ -60,7 +136,7 @@ cdef class Spline1D:
 
     cdef bs_spline1d *ptr   # pointer to c struct
     
-    def __cinit__(self, np.ndarray x, np.ndarray y, bcs=((2, 0.0), (2, 0.0))):
+    def __cinit__(self, np.ndarray x, np.ndarray y, bc="natural"):
 
         # require 1-d arrays
         if (x.ndim != 1 or y.ndim != 1):
@@ -76,25 +152,27 @@ cdef class Spline1D:
                                        y_.strides[0]//sizeof(double))
 
         # parse boundary conditions
-        cdef bs_bcs bcs_ = bs_bcs(bs_bc(bcs[0][0], bcs[0][1]),
-                                  bs_bc(bcs[1][0], bcs[1][1]))
-        
-        self.ptr = bs_create_spline1d(x_arr, y_arr, bcs_)
-        if self.ptr is NULL:
-            raise ValueError("input x values not monotonically increasing?")
-        
+        cdef bs_bcs bcs
+        parse_boundary_conditions(bc, &bcs)
+
+        # extensions
+        cdef bs_exts exts = bs_exts(bs_ext(BS_CONSTANT, 0.),
+                                    bs_ext(BS_CONSTANT, 0.))
+
+        cdef bs_errorcode code
+        code = bs_spline1d_create(x_arr, y_arr, bcs, exts, &self.ptr)
+        assert_ok(code)
+
 
     #def __init__(self, np.ndarray x, np.ndarray y):
     #    pass
 
 
     def __dealloc__(self):
-        if self.ptr is not NULL:
-            bs_free_spline1d(self.ptr)
+        bs_spline1d_free(self.ptr)
 
     def __call__(self, double[:] x):
         cdef double[:] outview
-        cdef int i, status
         
         out = np.empty(len(x))
         outview = out
@@ -104,10 +182,8 @@ cdef class Spline1D:
         cdef bs_array out_arr = bs_array(&outview[0], outview.shape[0],
                                          outview.strides[0]//sizeof(double))
 
-        status = bs_evalvec_spline1d(self.ptr, x_arr, out_arr);
-
-        if status:
-            raise ValueError("input array must be monotonically increasing")
+        cdef bs_errorcode code = bs_spline1d_eval(self.ptr, x_arr, out_arr);
+        assert_ok(code)
 
         return out
 
