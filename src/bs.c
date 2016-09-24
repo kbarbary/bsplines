@@ -11,7 +11,7 @@
 
 // This version assumes we already know that x >= values[start].
 // (Use start=-1 for no knowledge.)
-int find_index_from(double *values, int n, double x, int start)
+static int find_index_from(double *values, int n, double x, int start)
 {
   if (start < -1) start = -1;
   if (start > n-1) start = n-1;
@@ -20,13 +20,15 @@ int find_index_from(double *values, int n, double x, int start)
   return i-1;
 }
 
-int find_index(double *values, int n, double x)
+/*
+static int find_index(double *values, int n, double x)
 {
   return find_index_from(values, n, x, -1);
 }
+*/
 
 // find index using binary search
-int find_index_binary(double *values, int n, double x)
+static int find_index_binary(double *values, int n, double x)
 {
   int lo = 0;
   int hi = n;
@@ -321,7 +323,7 @@ double bs_ddb3(double x, int i, double *t) {
 
 // fill spline knots based on x array (includes padding on either
 // end of array).
-double* alloc_knots(bs_array x)
+static double* alloc_knots(bs_array x)
 {
   int N = x.length;
   double *knots = malloc((N + 5) * sizeof(double));
@@ -345,13 +347,13 @@ double* alloc_knots(bs_array x)
   return knots;
 }
 
-void free_knots(double *knots) {
+static void free_knots(double *knots) {
   knots -= 2;
   free(knots);
 }
 
 // dtinv[3i+j] stores 1./(t[i+1+j] - t[i])
-double* alloc_dtinv(double *knots, int n) {
+static double* alloc_dtinv(double *knots, int n) {
   double *dtinv = malloc(3 * (n+2) * sizeof(double));
   dtinv += 6;
   
@@ -364,7 +366,7 @@ double* alloc_dtinv(double *knots, int n) {
   return dtinv;
 }
 
-void free_dtinv(double *dtinv) {
+static void free_dtinv(double *dtinv) {
   dtinv -= 6;
   free(dtinv);
 }
@@ -387,7 +389,7 @@ void free_dtinv(double *dtinv) {
 // Rows are contiguous.
 //-----------------------------------------------------------------------------
 
-void solve(double* restrict A, double* restrict b, int n)
+static void solve(double* restrict A, double* restrict b, int n)
 {
   // divide 0th row by upper left element
   double t = A[0];
@@ -456,7 +458,7 @@ void solve(double* restrict A, double* restrict b, int n)
 // bs_array
 //-----------------------------------------------------------------------------
 
-int is_monotonic(bs_array x)
+static int is_monotonic(bs_array x)
 {
   int ok = 1;
   for (int i=1; i<x.length; i++) {
@@ -481,12 +483,12 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
 
   bs_spline1d* spline = malloc(sizeof(bs_spline1d));
   
-  
   int N = x.length;
   int M = N + 2;
   
   spline->knots = alloc_knots(x);
   spline->n = N;
+  spline->exts = exts;
   spline->dtinv = alloc_dtinv(spline->knots, N);
 
   // sparse matrix
@@ -540,6 +542,7 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
   return BS_OK;
 }
 
+
 void bs_spline1d_free(bs_spline1d* spline)
 {
   if (spline != NULL) {
@@ -549,7 +552,6 @@ void bs_spline1d_free(bs_spline1d* spline)
     free(spline);
   }
 }
-
 
 
 bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
@@ -566,26 +568,35 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
     xval = x.data[j*x.stride];
     i = find_index_from(spline->knots, spline->n, xval, i);
 
-    // for now, just return constant value outside spline range.
+    // index outside left boundary
     if (i == -1) {
-      /*if (spline->ood.left == BS_OOD_EXTRAP) {
+      switch (spline->exts.left.type) {
+      case BS_EXTRAPOLATE:
         i = 0;
-      }  
-      else if (spline->ood.left == BS_OOD_CONST) {
-        out.data[j * out.stride] = spline->od.left.value;
+        break;
+      case BS_CONSTANT:
+        out.data[j * out.stride] = spline->exts.left.value;
         continue;
+      case BS_RAISE:
+        return BS_DOMAINERROR;
       }
-      else if (spline->ood.left == BS_OOD_RAISE) {
-        return BS_DOMAIN_ERROR;
-        } */
-      i = 0;
-      xval = spline->knots[0];
-    }
-    else if (i == spline->n - 1) {
-      i = spline->n - 2;
-      xval = spline->knots[spline->n - 1];
     }
 
+    // index outside right boundary
+    else if (i == spline->n - 1) {
+      switch (spline->exts.right.type) {
+      case BS_EXTRAPOLATE:
+        i = spline->n - 2;
+        break;
+      case BS_CONSTANT:
+        out.data[j * out.stride] = spline->exts.right.value;
+        continue;
+      case BS_RAISE:
+        return BS_DOMAINERROR;
+      }
+    }
+
+    // if we get this far, we're either extrapolating or xval is in range.
     b3vec_pre(xval, i, spline->knots, spline->dtinv, b3vals);
     out.data[j*out.stride] = (spline->coeffs[i]   * b3vals[0] +
                               spline->coeffs[i+1] * b3vals[1] +
@@ -595,20 +606,3 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
 
   return BS_OK;
 }
-
-// magic function:
-//status = func(spline, xval, *val)
-
-// extrapolate: set i=0, 
-// out-of-bounds behavior options:
-// extrapolate:
-// i = 0 and continue
-// call: func(xval, i, spline)
-
-// raise:
-// status = BS_DOMAIN_ERROR
-
-// const:
-// y = spline->oob_val
-
-// 

@@ -1,4 +1,5 @@
-
+#ifndef BS_H
+#define BS_H
 
 //-----------------------------------------------------------------------------
 // Error codes
@@ -74,3 +75,5 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
                                 bs_exts exts, bs_spline1d **out);
 bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out);
 void         bs_spline1d_free(bs_spline1d *spline);
+
+#endif

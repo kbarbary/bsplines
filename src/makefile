@@ -1,7 +1,7 @@
 
 OS ?= $(shell sh -c 'uname -s | tr "[A-Z]" "[a-z]"')
 
-NAME = bspl
+NAME = bs
 SOMAJOR = 0
 SOMINOR = 1
 SOBUGFIX = 0
@@ -44,10 +44,10 @@ LDFLAGS_LIB = $(LDFLAGS) -shared -Wl,$(SONAME_FLAG),$(SONAME_MAJOR)
 
 default: all
 
-bspl.o: bspl.c bspl.h
-	$(CC) $(CPPFLAGS) $(CFLAGS_LIB) -c bspl.c -o $@
+bs.o: bs.c bs.h
+	$(CC) $(CPPFLAGS) $(CFLAGS_LIB) -c bs.c -o $@
 
-$(SONAME): bspl.o
+$(SONAME): bs.o
 	$(CC) $(LDFLAGS_LIB) $^ -o $(SONAME_FULL)
 	ln -sf $(SONAME_FULL) $(SONAME_MAJORMINOR)
 	ln -sf $(SONAME_FULL) $(SONAME_MAJOR)
@@ -75,8 +75,8 @@ uninstall:
 test: runtests
 	$(LDPATHENV)=. runtests
 
-runtests: runtests.c $(SONAME)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -L. runtests.c -l$(NAME) -o runtests
+runtests: runtests.c $(NAME).c $(NAME).h
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -L. runtests.c -o runtests
 
 clean:
 	rm -f *.o lib$(NAME).* runtests

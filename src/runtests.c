@@ -1,7 +1,11 @@
+// test for internal C functions
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include "bspl.h"
+
+// we include the source code here rather than linking
+// so we can test 'static' functions.
+#include "bs.c"
 
 
 // slow, recursive implementation of basis functions to compare to:
