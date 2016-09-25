@@ -48,272 +48,133 @@ static int find_index_binary(double *values, int n, double x)
 
 
 //-----------------------------------------------------------------------------
-// Explicitly written out version of i-th cubic B-spline
-// basis function, b_{3, i}. This can be derived by "manually inlining"
+// Compute the 4 basis functions that are nonzero, assuming t[i] <= x < t[i+1].
+// These are: b_{3, i-3}(x), b_{3, i-2}(x), b_{3, i-1}(x), b_{3, i}(x)
+//
+// This is faster than computing them separately, as some parts of the
+// calculation are shared. These can be derived by "manually inlining"
 // recursive function calls in the formula for the basis function.
 // (See tests for recursive version).
 //
-// This assumes that t[i] through t[i+4] (inclusive) are valid indicies.
-//-----------------------------------------------------------------------------
-
-// b_{3,i}(x) for t[i] <= x < t[i+1]
-double b3_0(double x, int i, double *t) {
-  return
-    (x - t[i]) * (x - t[i]) * (x - t[i]) /
-    ((t[i+3] - t[i]) * (t[i+2] - t[i]) * (t[i+1] - t[i]));
-}
-
-// b_{3, i}(x) for t[i+1] <= x < t[i+2]
-double b3_1(double x, int i, double *t) {
-  return
-    (x - t[i]) / (t[i+3] - t[i]) *
-    ((x - t[i]) * (t[i+2] - x) / ((t[i+2] - t[i]) * (t[i+2] - t[i+1]))
-     +
-     (t[i+3] - x) * (x - t[i+1]) / ((t[i+3] - t[i+1]) * (t[i+2] - t[i+1])))
-    +
-    (t[i+4] - x) * (x - t[i+1]) * (x - t[i+1]) /
-    ((t[i+4] - t[i+1]) * (t[i+3] - t[i+1]) * (t[i+2] - t[i+1]));
-}
-
-// b_{3, i}(x) for t[i+2] <= x < t[i+3]
-double b3_2(double x, int i, double *t) {
-  return
-    (x - t[i]) * (t[i+3] - x) * (t[i+3] - x) /
-    ((t[i+3] - t[i]) * (t[i+3] - t[i+1]) * (t[i+3] - t[i+2]))
-    +
-    (t[i+4] - x) / (t[i+4] - t[i+1]) *
-    ((x - t[i+1]) * (t[i+3] - x) / ((t[i+3] - t[i+1]) * (t[i+3] - t[i+2]))
-     +
-     (t[i+4] - x) * (x - t[i+2]) / ((t[i+4] - t[i+2]) * (t[i+3] - t[i+2])));
-}
-
-// b_{3, i}(x) for t[i+3] <= x < t[i+4]
-double b3_3(double x, int i, double *t) {
-  return
-    (t[i+4] - x) * (t[i+4] - x) * (t[i+4] - x) /
-    ((t[i+4] - t[i+1]) * (t[i+4] - t[i+2]) * (t[i+4] - t[i+3]));
-}
-
-// b_{3,i}(x)
-double bs_b3(double x, int i, double *t) {
-  if (x < t[i]) return 0.0;
-  else if (x < t[i+1]) return b3_0(x, i, t);
-  else if (x < t[i+2]) return b3_1(x, i, t);
-  else if (x < t[i+3]) return b3_2(x, i, t);
-  else if (x < t[i+4]) return b3_3(x, i, t);
-  else return 0.0;
-}
-
-
-//-----------------------------------------------------------------------------
-// version of above with precomputed differences
-//
 // dtinv[3i+j] stores 1./(t[i+1+j] - t[i])
+//
+// t indicies from (i-2) to (i+3) are used.
+// dtinv indicies from 3*(i-2)+2 (=3*i-4) to (3*i+2) are used
+//-----------------------------------------------------------------------------
 
-// b_{3,i}(x) for t[i] <= x < t[i+1]
-double b3_0_pre(double x, int i, double *t, double *dtinv) {
-  return
-    (x - t[i]) * (x - t[i]) * (x - t[i]) *
-    dtinv[3*i+2] * dtinv[3*i+1] * dtinv[3*i];
-}
-
-// b_{3, i}(x) for t[i+1] <= x < t[i+2]
-double b3_1_pre(double x, int i, double *t, double *dtinv) {
-  return
-    (x - t[i]) * dtinv[3*i+2] *
-    ((x - t[i]) * (t[i+2] - x) * dtinv[3*i+1] * dtinv[3*(i+1)]
-     +
-     (t[i+3] - x) * (x - t[i+1]) * dtinv[3*(i+1)+1] * dtinv[3*(i+1)])
-    +
-    (t[i+4] - x) * (x - t[i+1]) * (x - t[i+1]) *
-    dtinv[3*(i+1)+2] * dtinv[3*(i+1)+1] * dtinv[3*(i+1)];
-}
-
-// b_{3, i}(x) for t[i+2] <= x < t[i+3]
-double b3_2_pre(double x, int i, double *t, double *dtinv) {
-  return
-    (x - t[i]) * (t[i+3] - x) * (t[i+3] - x) *
-    dtinv[3*i+2] * dtinv[3*(i+1)+1] * dtinv[3*(i+2)]
-    +
-    (t[i+4] - x) * dtinv[3*(i+1)+2] *
-    ((x - t[i+1]) * (t[i+3] - x) * dtinv[3*(i+1)+1] * dtinv[3*(i+2)]
-     +
-     (t[i+4] - x) * (x - t[i+2]) * dtinv[3*(i+2)+1] * dtinv[3*(i+2)]);
-}
-
-// b_{3, i}(x) for t[i+3] <= x < t[i+4]
-double b3_3_pre(double x, int i, double *t, double *dtinv) {
-  return
-    (t[i+4] - x) * (t[i+4] - x) * (t[i+4] - x) *
-    dtinv[3*(i+1)+2] * dtinv[3*(i+2)+1] * dtinv[3*(i+3)];
-}
-
-// b_{3, i-3}(x), b_{3, i-2}(x), b_{3, i-1}(x), b_{3, i}(x)
-// assuming t[i] <= x < t[i+1]
-void b3vec_pre(double x, int i, double *t, double *dtinv, double out[4])
+static void b3nonzeros(double x, int i, double *t, double *dtinv,
+                       double out[4])
 {
-  double dx0 = x - t[i-2];
-  double dx1 = x - t[i-1];
-  double dx2 = x - t[i];
-  double dx3 = t[i+1] - x;
-  double dx4 = t[i+2] - x;
-  double dx5 = t[i+3] - x;
+  double dx1 = x - t[i-2];
+  double dx2 = x - t[i-1];
+  double dx3 = x - t[i];
+  double dx4 = t[i+1] - x;
+  double dx5 = t[i+2] - x;
+  double dx6 = t[i+3] - x;
   
   double c1 = dtinv[3*(i-2)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
   double c2 = dtinv[3* i   +2] * dtinv[3* i   +1] * dtinv[3*i];
   double c3 = dtinv[3*(i-1)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
   double c4 = dtinv[3*(i-1)+2] * dtinv[3* i   +1] * dtinv[3*i];
   
-  double tmp1 = dx3 * dx3 * c1;
-  double tmp2 = dx2 * dx2 * c2;
-  double tmp3 = dx1 * dx3 * c3 + dx4 * dx2 * c4;
+  double tmp1 = dx4 * dx4 * c1;
+  double tmp2 = dx3 * dx3 * c2;
+  double tmp3 = dx2 * dx4 * c3 + dx5 * dx3 * c4;
   
-  out[0] = dx3 * tmp1;
-  out[1] = dx0 * tmp1 + dx4 * tmp3;
-  out[2] = dx5 * tmp2 + dx1 * tmp3;
-  out[3] = dx2 * tmp2;
+  out[0] = dx4 * tmp1;
+  out[1] = dx1 * tmp1 + dx5 * tmp3;
+  out[2] = dx6 * tmp2 + dx2 * tmp3;
+  out[3] = dx3 * tmp2;
 }
 
-//-----------------------------------------------------------------------------
-// first derivatives of above functions
-//-----------------------------------------------------------------------------
 
-// d/dx b_{3,i}(x) for t[i] <= x < t[i+1]
-double db3_0(double x, int i, double *t) {
-  return
-    3.0 * (x - t[i]) * (x - t[i]) /
-    ((t[i+3] - t[i]) * (t[i+2] - t[i]) * (t[i+1] - t[i]));
+// derivatives of previous function
+static void db3nonzeros(double x, int i, double *t, double *dtinv,
+                        double out[4])
+{
+  double dx1 = x - t[i-2];
+  double dx2 = x - t[i-1];
+  double dx3 = x - t[i];
+  double dx4 = t[i+1] - x;
+  double dx5 = t[i+2] - x;
+  double dx6 = t[i+3] - x;
+  
+  double c1 = dtinv[3*(i-2)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double c2 = dtinv[3* i   +2] * dtinv[3* i   +1] * dtinv[3*i];
+  double c3 = dtinv[3*(i-1)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double c4 = dtinv[3*(i-1)+2] * dtinv[3* i   +1] * dtinv[3*i];
+
+  double tmp1 = dx4 * c1;
+  double tmp2 = dx3 * c2;
+  double tmp3 = dx2 * c3;
+  double tmp4 = dx5 * c4;
+  
+  out[0] = -3.0 * dx4 * tmp1;
+  
+  out[1] = ((        dx4 - 2.0 * dx1) * tmp1 +
+            (-       dx4 -       dx5) * tmp3 +
+            (- 2.0 * dx3 +       dx5) * tmp4 +
+            dx5 * dx4 * c3);
+
+  out[2] = ((-     dx3 + 2.0 * dx6) * tmp2 +
+            (2.0 * dx4 -       dx2) * tmp3 +
+            (      dx3 +       dx2) * tmp4
+            - dx2 * dx3 * c4);
+
+  out[3] = 3.0 * dx3 * tmp2;
 }
 
-// d/dx b_{3, i}(x) for t[i+1] <= x < t[i+2]
-double db3_1(double x, int i, double *t) {
-  return
-    1.0 / (t[i+3] - t[i]) *
-    ((x - t[i]) * (t[i+2] - x) / ((t[i+2] - t[i]) * (t[i+2] - t[i+1]))
-     +
-     (t[i+3] - x) * (x - t[i+1]) / ((t[i+3] - t[i+1]) * (t[i+2] - t[i+1])))
-    +
-    (x - t[i]) / (t[i+3] - t[i]) *
-    ((t[i+2] + t[i] - 2.0 * x) / ((t[i+2] - t[i]) * (t[i+2] - t[i+1]))
-     +
-     (t[i+3] + t[i+1] - 2.0 * x) / ((t[i+3] - t[i+1]) * (t[i+2] - t[i+1])))    
-    +
-    (2.0 * (t[i+4] - x) * (x - t[i+1]) - (x - t[i+1]) * (x - t[i+1])) /
-    ((t[i+4] - t[i+1]) * (t[i+3] - t[i+1]) * (t[i+2] - t[i+1]));
-}
 
-// d/dx b_{3, i}(x) for t[i+2] <= x < t[i+3]
-double db3_2(double x, int i, double *t) {
-  return
-    ((t[i+3] - x) * (t[i+3] - x) - 2.0 * (x - t[i]) * (t[i+3] - x)) /
-    ((t[i+3] - t[i]) * (t[i+3] - t[i+1]) * (t[i+3] - t[i+2]))
-    -
-    1.0 / (t[i+4] - t[i+1]) *
-    ((x - t[i+1]) * (t[i+3] - x) / ((t[i+3] - t[i+1]) * (t[i+3] - t[i+2]))
-     +
-     (t[i+4] - x) * (x - t[i+2]) / ((t[i+4] - t[i+2]) * (t[i+3] - t[i+2])))
-    +
-    (t[i+4] - x) / (t[i+4] - t[i+1]) *
-    ((t[i+3] + t[i+1] - 2.0 * x) / ((t[i+3] - t[i+1]) * (t[i+3] - t[i+2]))
-     +
-     (t[i+4] + t[i+2] - 2.0 * x) / ((t[i+4] - t[i+2]) * (t[i+3] - t[i+2])));
-}
-
-// d/dx b_{3, i}(x) for t[i+3] <= x < t[i+4]
-double db3_3(double x, int i, double *t) {
-  return
-    -3.0 * (t[i+4] - x) * (t[i+4] - x) /
-    ((t[i+4] - t[i+1]) * (t[i+4] - t[i+2]) * (t[i+4] - t[i+3]));
-}
-
-double bs_db3(double x, int i, double *t) {
-  if (x < t[i]) return 0.0;
-  else if (x < t[i+1]) return db3_0(x, i, t);
-  else if (x < t[i+2]) return db3_1(x, i, t);
-  else if (x < t[i+3]) return db3_2(x, i, t);
-  else if (x < t[i+4]) return db3_3(x, i, t);
-  else return 0.0;
-}
-
-//-----------------------------------------------------------------------------
 // second derivatives
-//-----------------------------------------------------------------------------
+static void d2b3nonzeros(double x, int i, double *t, double *dtinv,
+                         double out[4])
+{
+  double dx1 = x - t[i-2];
+  double dx2 = x - t[i-1];
+  double dx3 = x - t[i];
+  double dx4 = t[i+1] - x;
+  double dx5 = t[i+2] - x;
+  double dx6 = t[i+3] - x;
+  
+  double c1 = dtinv[3*(i-2)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double c2 = dtinv[3* i   +2] * dtinv[3* i   +1] * dtinv[3*i];
+  double c3 = dtinv[3*(i-1)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double c4 = dtinv[3*(i-1)+2] * dtinv[3* i   +1] * dtinv[3*i];
+  
+  out[0] = 6.0 * dx4 * c1;
+  
+  out[1] = (- 2.0 * dx4 * c1
+            - 2.0 * (dx4 - dx1) * c1
+            -       (dx4 - dx2) * c3
+            +       (-dx5 - dx4) * c3
+            -       (dx5 - dx2) * c3
+            - 2.0 * (dx5 - dx3) * c4
+            - 2.0 * dx5 * c4);
 
-// d2/dx2 b_{3,i}(x) for t[i] <= x < t[i+1]
-double ddb3_0(double x, int i, double *t) {
-  return
-    6.0 * (x - t[i]) /
-    ((t[i+3] - t[i]) * (t[i+2] - t[i]) * (t[i+1] - t[i]));
+  
+  out[2] = (- 2.0 * dx3 * c2
+            + 2.0 * (dx6 - dx3) * c2 
+            + 2.0 * (dx4 - dx2) * c3
+            - 2.0 * dx2 * c3
+            +       (dx5 - dx3) * c4
+            -       (dx2 + dx3) * c4
+            +       (dx5 - dx2) * c4);
+
+  out[3] = 6.0 * dx3 * c2;
 }
 
-// d2/dx2 b_{3, i}(x) for t[i+1] <= x < t[i+2]
-double ddb3_1(double x, int i, double *t) {
-  return
-    1.0 / (t[i+3] - t[i]) *
-    ((t[i+2] + t[i] - 2.0 * x) / ((t[i+2] - t[i]) * (t[i+2] - t[i+1]))
-     +
-     (t[i+3] + t[i+1] - 2.0 * x) / ((t[i+3] - t[i+1]) * (t[i+2] - t[i+1])))
-
-    +
-    
-    1.0 / (t[i+3] - t[i]) *
-    ((t[i+2] + t[i] - 2.0 * x) / ((t[i+2] - t[i]) * (t[i+2] - t[i+1]))
-     +
-     (t[i+3] + t[i+1] - 2.0 * x) / ((t[i+3] - t[i+1]) * (t[i+2] - t[i+1])))    
-
-    +
-    
-    (x - t[i]) / (t[i+3] - t[i]) *
-    (-2.0 / ((t[i+2] - t[i]) * (t[i+2] - t[i+1]))
-     -2.0 / ((t[i+3] - t[i+1]) * (t[i+2] - t[i+1])))    
-
-    +
-
-    (2.0 * (t[i+4] + t[i+1] - 2.0 * x) - 2.0 * (x - t[i+1])) /
-    ((t[i+4] - t[i+1]) * (t[i+3] - t[i+1]) * (t[i+2] - t[i+1]));
-}
-
-// d2/dx2 b_{3, i}(x) for t[i+2] <= x < t[i+3]
-double ddb3_2(double x, int i, double *t) {
-  return
-    (-2.0 * (t[i+3] - x) - 2.0 * (t[i+3] + t[i] - 2.0 * x)) /
-    ((t[i+3] - t[i]) * (t[i+3] - t[i+1]) * (t[i+3] - t[i+2]))
-
-    +
-
-    -1.0 / (t[i+4] - t[i+1]) *
-    ((t[i+3] + t[i+1] - 2.0 * x) / ((t[i+3] - t[i+1]) * (t[i+3] - t[i+2]))
-     +
-     (t[i+4] + t[i+2] - 2.0 * x) / ((t[i+4] - t[i+2]) * (t[i+3] - t[i+2])))
-
-    +
-     
-    -1.0 / (t[i+4] - t[i+1]) *
-    ((t[i+3] + t[i+1] - 2.0 * x) / ((t[i+3] - t[i+1]) * (t[i+3] - t[i+2]))
-     +
-     (t[i+4] + t[i+2] - 2.0 * x) / ((t[i+4] - t[i+2]) * (t[i+3] - t[i+2])))
-
-    +
-     
-    (t[i+4] - x) / (t[i+4] - t[i+1]) *
-    (-2.0 / ((t[i+3] - t[i+1]) * (t[i+3] - t[i+2]))
-     -2.0 / ((t[i+4] - t[i+2]) * (t[i+3] - t[i+2])));
-}
-
-// d2/dx2 b_{3, i}(x) for t[i+3] <= x < t[i+4]
-double ddb3_3(double x, int i, double *t) {
-  return
-    6.0 * (t[i+4] - x) /
-    ((t[i+4] - t[i+1]) * (t[i+4] - t[i+2]) * (t[i+4] - t[i+3]));
-}
-
-double bs_ddb3(double x, int i, double *t) {
-  if (x < t[i]) return 0.0;
-  else if (x < t[i+1]) return ddb3_0(x, i, t);
-  else if (x < t[i+2]) return ddb3_1(x, i, t);
-  else if (x < t[i+3]) return ddb3_2(x, i, t);
-  else if (x < t[i+4]) return ddb3_3(x, i, t);
-  else return 0.0;
+// third derivatives
+static void d3b3nonzeros(int i, double *dtinv, double out[4])
+{
+  double c1 = dtinv[3*(i-2)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double c2 = dtinv[3* i   +2] * dtinv[3* i   +1] * dtinv[3*i];
+  double c3 = dtinv[3*(i-1)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double c4 = dtinv[3*(i-1)+2] * dtinv[3* i   +1] * dtinv[3*i];
+  
+  out[0] = -6.0 * c1;
+  out[1] = 6.0 * (c1 + c3 + c4);
+  out[2] = -6.0 * (c2 + c3 + c4);
+  out[3] = 6.0 * c2;
 }
 
 
@@ -328,7 +189,7 @@ static double* alloc_knots(bs_array x)
   int N = x.length;
   double *knots = malloc((N + 5) * sizeof(double));
 
-  // move pointer pointer past initial two-element padding.
+  // move pointer past initial two-element padding.
   knots += 2;
   
   // copy x into main part of knots
@@ -451,7 +312,7 @@ static void solve(double* restrict A, double* restrict b, int n)
   }
 
   // first row is different
-  b[0] -= b[1] * A[1] - b[2] * A[2];
+  b[0] -= b[1] * A[1] + b[2] * A[2];
 }
 
 //-----------------------------------------------------------------------------
@@ -491,46 +352,40 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
   spline->exts = exts;
   spline->dtinv = alloc_dtinv(spline->knots, N);
 
-  // sparse matrix
-  double *A = malloc(3 * M * sizeof(double));
+  // sparse matrix (last element not used, but we write to it
+  double *A = malloc((3 * M + 1) * sizeof(double));
 
   // The first row is the constraint on a derivative of the spline at x[0]
   if (bcs.left.type == BS_DERIV1) {
-    A[0] = db3_3(spline->knots[0], -3, spline->knots);
-    A[1] = db3_2(spline->knots[0], -2, spline->knots);
-    A[2] = db3_1(spline->knots[0], -1, spline->knots);
+      db3nonzeros(spline->knots[0], 0, spline->knots, spline->dtinv, A);
   }
   else {  // type must be BS_DERIV2
-    A[0] = ddb3_3(spline->knots[0], -3, spline->knots);
-    A[1] = ddb3_2(spline->knots[0], -2, spline->knots);
-    A[2] = ddb3_1(spline->knots[0], -1, spline->knots);
+      d2b3nonzeros(spline->knots[0], 0, spline->knots, spline->dtinv, A);
   }
 
   // At a knot i, the spline has three non-zero components:
   // b_{i-3}, b_{i-2}, b{i-1}. (b_i is zero at knot i).
   for (int i=0; i<N; i++) {
-    A[3*(i+1) + 0] = b3_3(spline->knots[i], i-3, spline->knots);
-    A[3*(i+1) + 1] = b3_2(spline->knots[i], i-2, spline->knots);
-    A[3*(i+1) + 2] = b3_1(spline->knots[i], i-1, spline->knots);
+      b3nonzeros(spline->knots[i], i, spline->knots, spline->dtinv,
+                 A + 3*(i+1));
   }
 
   // derivatives at final point
   if (bcs.right.type == BS_DERIV1) {
-    A[3*(M-1) + 0] = db3_3(spline->knots[N-1], (N-1)-3, spline->knots);
-    A[3*(M-1) + 1] = db3_2(spline->knots[N-1], (N-1)-2, spline->knots);
-    A[3*(M-1) + 2] = db3_1(spline->knots[N-1], (N-1)-1, spline->knots);
+      db3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->dtinv,
+                  A + 3*(M-1));
   }
   else {  // type must be BS_DERIV2
-    A[3*(M-1) + 0] = ddb3_3(spline->knots[N-1], (N-1)-3, spline->knots);
-    A[3*(M-1) + 1] = ddb3_2(spline->knots[N-1], (N-1)-2, spline->knots);
-    A[3*(M-1) + 2] = ddb3_1(spline->knots[N-1], (N-1)-1, spline->knots);
+      d2b3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->dtinv,
+                   A + 3*(M-1));
   }
 
   // right hand side:
   double *b = malloc(M * sizeof(double));
   b[0] = bcs.left.value;
-  for (int i=0; i<N; i++)
-    b[i+1] = y.data[i * y.stride];
+  for (int i=0; i<N; i++) {
+      b[i+1] = y.data[i * y.stride];
+  }
   b[M-1] = bcs.right.value;
   
   // Solve
@@ -597,7 +452,7 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
     }
 
     // if we get this far, we're either extrapolating or xval is in range.
-    b3vec_pre(xval, i, spline->knots, spline->dtinv, b3vals);
+    b3nonzeros(xval, i, spline->knots, spline->dtinv, b3vals);
     out.data[j*out.stride] = (spline->coeffs[i]   * b3vals[0] +
                               spline->coeffs[i+1] * b3vals[1] +
                               spline->coeffs[i+2] * b3vals[2] +
@@ -606,3 +461,30 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
 
   return BS_OK;
 }
+
+/*
+ * evaluate all basis functions in the spline at all positions x.
+ *
+ * out should be an array with size `x.length * (N+2)` where N is the
+ * number of knots in the spline.
+ */
+
+/*
+void bs_spline1d_basis(bs_spline1d *spline, bs_array x, double *out)
+{
+    int M = x.length * (spline->n - 1);
+    
+    // Set all of out to zero    
+    for (int j=0; j<M; j++) out[j] = 0.0;
+
+    for (int j=0; j<x.length; j++)
+    {
+        xval = x.data[j*x.stride];
+
+        // don't really care about speed here so binary search on each
+        // value is fine.
+        int i = find_index_binary(spline->knots, spline->n, xval);
+
+        
+        if (i < 0) continue;
+*/

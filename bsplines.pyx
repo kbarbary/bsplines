@@ -20,10 +20,6 @@ cdef extern from "bs.h":
         int length
         int stride
 
-    double bs_b3(double x, int i, double *t)
-    double bs_db3(double x, int i, double *t)
-    double bs_ddb3(double x, int i, double *t)
-
     ctypedef enum bs_bctype:
         BS_DERIV1
         BS_DERIV2
@@ -106,19 +102,6 @@ cdef int parse_boundary_conditions(pybc, bs_bcs *out) except -1:
         raise ValueError("unrecognized boundary condition: " + repr(pybc))
 
 
-#------------------------------------------------------------------------------
-# utils
-    
-def b3(double x, int i, double[:] t):    
-    return bs_b3(x, i, &t[0]);
-
-def db3(double x, int i, double[:] t):    
-    return bs_db3(x, i, &t[0]);
-
-def ddb3(double x, int i, double[:] t):    
-    return bs_ddb3(x, i, &t[0]);
-
-
 # -----------------------------------------------------------------------------
 # 1-d spline
 
@@ -156,8 +139,8 @@ cdef class Spline1D:
         parse_boundary_conditions(bc, &bcs)
 
         # extensions
-        cdef bs_exts exts = bs_exts(bs_ext(BS_CONSTANT, 0.),
-                                    bs_ext(BS_CONSTANT, 0.))
+        cdef bs_exts exts = bs_exts(bs_ext(BS_CONSTANT, y_[0]),
+                                    bs_ext(BS_CONSTANT, y_[-1]))
 
         cdef bs_errorcode code
         code = bs_spline1d_create(x_arr, y_arr, bcs, exts, &self.ptr)

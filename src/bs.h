@@ -23,10 +23,6 @@ typedef struct {
   int stride;
 } bs_array;
 
-double bs_b3(double x, int i, double *t);
-double bs_db3(double x, int i, double *t);
-double bs_ddb3(double x, int i, double *t);
-
 //-----------------------------------------------------------------------------
 // Boundary conditions
 //-----------------------------------------------------------------------------
