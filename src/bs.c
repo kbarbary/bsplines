@@ -62,7 +62,7 @@ static int find_index_binary(double *values, int n, double x)
 // dtinv indicies from 3*(i-2)+2 (=3*i-4) to (3*i+2) are used
 //-----------------------------------------------------------------------------
 
-static void b3nonzeros(double x, int i, double *t, double *dtinv,
+static void b3nonzeros(double x, int i, double *t, double *consts,
                        double out[4])
 {
   double dx1 = x - t[i-2];
@@ -72,10 +72,10 @@ static void b3nonzeros(double x, int i, double *t, double *dtinv,
   double dx5 = t[i+2] - x;
   double dx6 = t[i+3] - x;
   
-  double c1 = dtinv[3*(i-2)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
-  double c2 = dtinv[3* i   +2] * dtinv[3* i   +1] * dtinv[3*i];
-  double c3 = dtinv[3*(i-1)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
-  double c4 = dtinv[3*(i-1)+2] * dtinv[3* i   +1] * dtinv[3*i];
+  double c1 = consts[4*i]; // dtinv[3*(i-2)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double c2 = consts[4*i+1]; //dtinv[3* i   +2] * dtinv[3* i   +1] * dtinv[3*i];
+  double c3 = consts[4*i+2]; //dtinv[3*(i-1)+2] * dtinv[3*(i-1)+1] * dtinv[3*i];
+  double c4 = consts[4*i+3]; //dtinv[3*(i-1)+2] * dtinv[3* i   +1] * dtinv[3*i];
   
   double tmp1 = dx4 * dx4 * c1;
   double tmp2 = dx3 * dx3 * c2;
@@ -172,9 +172,9 @@ static void d3b3nonzeros(int i, double *dtinv, double out[4])
   double c4 = dtinv[3*(i-1)+2] * dtinv[3* i   +1] * dtinv[3*i];
   
   out[0] = -6.0 * c1;
-  out[1] = 6.0 * (c1 + c3 + c4);
+  out[1] =  6.0 * (c1 + c3 + c4);
   out[2] = -6.0 * (c2 + c3 + c4);
-  out[3] = 6.0 * c2;
+  out[3] =  6.0 * c2;
 }
 
 
@@ -208,10 +208,12 @@ static double* alloc_knots(bs_array x)
   return knots;
 }
 
+
 static void free_knots(double *knots) {
   knots -= 2;
   free(knots);
 }
+
 
 // dtinv[3i+j] stores 1./(t[i+1+j] - t[i])
 static double* alloc_dtinv(double *knots, int n) {
@@ -227,10 +229,41 @@ static double* alloc_dtinv(double *knots, int n) {
   return dtinv;
 }
 
+// constants used when evaluating a spline.
+// constaants + 4*i is a pointer to the four constants used
+// when evaluating the spline in the range knots[i] <= x < knots[i+1].
+static double* alloc_constants(double *knots, int n) {
+    double *constants = malloc(4 * n * sizeof(double));
+
+    // formerly c1, c2, c3, c4
+    for (int i=0; i<n; i++) {
+        constants[4*i+0] = 1.0 / ((knots[i+1] - knots[i-2]) *
+                                  (knots[i+1] - knots[i-1]) *
+                                  (knots[i+1] - knots[i  ]));
+        
+        constants[4*i+1] = 1.0 / ((knots[i+3] - knots[i  ]) *
+                                  (knots[i+2] - knots[i  ]) *
+                                  (knots[i+1] - knots[i  ]));
+
+        constants[4*i+2] = 1.0 / ((knots[i+2] - knots[i-1]) *
+                                  (knots[i+1] - knots[i-1]) *
+                                  (knots[i+1] - knots[i  ]));
+
+        constants[4*i+3] = 1.0 / ((knots[i+2] - knots[i-1]) *
+                                  (knots[i+2] - knots[i  ]) *
+                                  (knots[i+1] - knots[i  ]));
+    }
+
+    return constants;
+}
+
+
 static void free_dtinv(double *dtinv) {
   dtinv -= 6;
   free(dtinv);
 }
+
+
 //-----------------------------------------------------------------------------
 // solve()
 //
@@ -351,7 +384,8 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
   spline->n = N;
   spline->exts = exts;
   spline->dtinv = alloc_dtinv(spline->knots, N);
-
+  spline->consts = alloc_constants(spline->knots, N);
+  
   // sparse matrix (last element not used, but we write to it
   double *A = malloc((3 * M + 1) * sizeof(double));
 
@@ -366,7 +400,7 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
   // At a knot i, the spline has three non-zero components:
   // b_{i-3}, b_{i-2}, b{i-1}. (b_i is zero at knot i).
   for (int i=0; i<N; i++) {
-      b3nonzeros(spline->knots[i], i, spline->knots, spline->dtinv,
+      b3nonzeros(spline->knots[i], i, spline->knots, spline->consts,
                  A + 3*(i+1));
   }
 
@@ -403,6 +437,7 @@ void bs_spline1d_free(bs_spline1d* spline)
   if (spline != NULL) {
     free_knots(spline->knots);
     free_dtinv(spline->dtinv);
+    free(spline->consts);
     free(spline->coeffs);
     free(spline);
   }
@@ -452,7 +487,7 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
     }
 
     // if we get this far, we're either extrapolating or xval is in range.
-    b3nonzeros(xval, i, spline->knots, spline->dtinv, b3vals);
+    b3nonzeros(xval, i, spline->knots, spline->consts, b3vals);
     out.data[j*out.stride] = (spline->coeffs[i]   * b3vals[0] +
                               spline->coeffs[i+1] * b3vals[1] +
                               spline->coeffs[i+2] * b3vals[2] +

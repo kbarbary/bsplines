@@ -63,6 +63,7 @@ typedef struct {
   double *knots;
   double *dtinv;
   double *coeffs;
+    double *consts;
   int n;
   bs_exts exts;
 } bs_spline1d;
