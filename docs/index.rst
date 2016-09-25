@@ -6,7 +6,7 @@ BSplines is a Python package for fast cubic basis splines. For some mathematical
 .. toctree::
    :hidden:
 
-   math
+   background
    benchmarks
 
 API
