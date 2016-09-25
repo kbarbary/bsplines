@@ -73,7 +73,7 @@ uninstall:
 	rm $(DESTDIR)$(LIBDIR)/lib$(NAME).a
 
 test: runtests
-	$(LDPATHENV)=. runtests
+	runtests
 
 runtests: runtests.c $(NAME).c $(NAME).h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -L. runtests.c -o runtests
