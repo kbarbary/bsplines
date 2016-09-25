@@ -166,6 +166,37 @@ static void d3b3nonzeros(int i, double* restrict consts, double out[4])
 
 
 //-----------------------------------------------------------------------------
+// unit basis versions of above
+// knot locations in this basis are [0, 1, ..., N-1]
+// For 0 <= x < 1 return b_{-3}(x), b_{-2}(x), b_{-1}(x), b_0(x)
+// For i <= x < i+1 subtract i from x first. to get b_{i-3}(x), b_{i-2}(x), ...
+// (works because all the basis functions are the same with a shift,
+//  so b_{-3}(x) = b_{i-3}(i+x).
+//-----------------------------------------------------------------------------
+
+static const ONESIXTH = 1./6.;
+
+static void b3unonzeros(double x, double out[4])
+{
+
+    double dx1 = x + 2.0;
+    double dx2 = x + 1.0;
+    double dx4 = 1.0 - x;
+    double dx5 = 2.0 - x;
+    double dx6 = 3.0 - x;
+
+    double tmp1 = ONESIXTH * dx4 * dx4;
+    double tmp2 = ONESIXTH * x * x;
+    double tmp3 = ONESIXTH * (dx2 * dx4 + dx5 * x);
+    
+    out[0] = dx4 * tmp1;
+    out[1] = dx1 * tmp1 + dx5 * tmp3;
+    out[2] = dx6 * tmp2 + dx2 * tmp3;
+    out[3] = x   * tmp2;
+}
+
+
+//-----------------------------------------------------------------------------
 // knots
 //-----------------------------------------------------------------------------
 
@@ -228,6 +259,28 @@ static double* alloc_constants(double *knots, int n) {
 
     return constants;
 }
+
+//-----------------------------------------------------------------------------
+// not-a-knot boundary condition preprocessing
+//
+// We want to solve a matrix like this:
+//
+// | x x x x x          |
+// | x x x              |
+// |   x x x            |
+// |     x x x          |
+// |        ...         |
+// |            x x x   |
+// |              x x x |
+// |          x x x x x |
+//
+// So we'll eliminate the trailing two elements in the first row
+// and the leading two elements in the last row. Then we can feed it to
+// the standard solve().
+//
+// strategy is basically:
+// subtract (row 3) * (A[4,0] / A[4,3]) from row 0
+// subtract (row 2) * (A[3,0] / A[3,2]) from row 0
 
 
 //-----------------------------------------------------------------------------
@@ -461,29 +514,3 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
   return BS_OK;
 }
 
-/*
- * evaluate all basis functions in the spline at all positions x.
- *
- * out should be an array with size `x.length * (N+2)` where N is the
- * number of knots in the spline.
- */
-
-/*
-void bs_spline1d_basis(bs_spline1d *spline, bs_array x, double *out)
-{
-    int M = x.length * (spline->n - 1);
-    
-    // Set all of out to zero    
-    for (int j=0; j<M; j++) out[j] = 0.0;
-
-    for (int j=0; j<x.length; j++)
-    {
-        xval = x.data[j*x.stride];
-
-        // don't really care about speed here so binary search on each
-        // value is fine.
-        int i = find_index_binary(spline->knots, spline->n, xval);
-
-        
-        if (i < 0) continue;
-*/
