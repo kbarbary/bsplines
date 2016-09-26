@@ -174,7 +174,7 @@ static void d3b3nonzeros(int i, double* restrict consts, double out[4])
 //  so b_{-3}(x) = b_{i-3}(i+x).
 //-----------------------------------------------------------------------------
 
-static const ONESIXTH = 1./6.;
+static const double ONESIXTH = 1./6.;
 
 static void b3unonzeros(double x, double out[4])
 {
@@ -228,8 +228,7 @@ static double* alloc_knots(bs_array x)
 
 
 static void free_knots(double *knots) {
-  knots -= 2;
-  free(knots);
+  free(knots - 2);
 }
 
 

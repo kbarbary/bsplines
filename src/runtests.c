@@ -8,6 +8,9 @@
 // so we can test 'static' functions.
 #include "bs.c"
 
+//-----------------------------------------------------------------------------
+// test helpers
+
 char assert_message[80] = "\0";
 #define ASSERT(condition) {                                     \
         if (!(condition)) {                                     \
@@ -16,12 +19,28 @@ char assert_message[80] = "\0";
         }                                                       \
 }
 
-#define ASSERT_CLOSE(exp1, exp2) {                              \
-        if (!(close(exp1, exp2, 1e-14))) {                              \
-            strcpy(assert_message, "not close: " #exp1 " and " #exp2);      \
-            return 1;                                           \
-        }                                                       \
+#define ASSERT_CLOSE(ex1, ex2) {                                        \
+        if (!(close(ex1, ex2, 1e-14, 1e-14))) {                         \
+            strcpy(assert_message, "not close: " #ex1 " and " #ex2);    \
+            return 1;                                                   \
+        }                                                               \
 }
+
+#define ASSERT_ALLCLOSE(ex1, ex2, len) {                                \
+        if (!(allclose(ex1, ex2, len, 1e-14, 1e-14))) {                 \
+            strcpy(assert_message, "not close: " #ex1 " and " #ex2);    \
+            return 1;                                                   \
+        }                                                               \
+}
+
+// useful for debugging
+void print_comparison(double *x, double *y, int n)
+{
+    for (int i=0; i<n; i++) {
+        printf("%.17f   %.17f\n", x[i], y[i]);
+    }
+}
+
 
 //-----------------------------------------------------------------------------
 // slow, recursive implementation of basis functions to compare to
@@ -68,37 +87,37 @@ double d3b(int k, double x, int i, double *t)
             -3.0           / (t[i+k+1] - t[i+1]) * d2b(k-1, x, i+1, t));
 }
 
-//-----------------------------------------------------------------------------
+void slow_b3nonzeros(double x, int i, double *t, double out[4])
+{
+    out[0] = b(3, x, i-3, t);
+    out[1] = b(3, x, i-2, t);
+    out[2] = b(3, x, i-1, t);
+    out[3] = b(3, x, i  , t);
+}
 
-// TODO: test that mimics b3(x, i, t) using b3nonzeros()
+void slow_db3nonzeros(double x, int i, double *t, double out[4])
+{
+    out[0] = db(3, x, i-3, t);
+    out[1] = db(3, x, i-2, t);
+    out[2] = db(3, x, i-1, t);
+    out[3] = db(3, x, i  , t);
+}
 
-// tests from Python...
-/*
-def test_b3():
-    """Test that basis function matches naive implementation"""
-    t = np.array([0., 1., 2., 3., 4.])  # knots
-    x = np.linspace(-1., 5., 100)
-    y = np.array([bsplines.b3(xi, 0, t) for xi in x])
-    assert_allclose(np.array([bsplines.b3(xi, 0, t) for xi in x]),
-                    np.array([b(3, xi, 0, t) for xi in x]))
+void slow_d2b3nonzeros(double x, int i, double *t, double out[4])
+{
+    out[0] = d2b(3, x, i-3, t);
+    out[1] = d2b(3, x, i-2, t);
+    out[2] = d2b(3, x, i-1, t);
+    out[3] = d2b(3, x, i  , t);
+}
 
-
-def test_db3():
-    """Test that basis function matches naive implementation"""
-    t = np.array([0., 1., 2., 3., 4.])  # knots
-    x = np.linspace(-1., 5., 100)
-    y = np.array([bsplines.db3(xi, 0, t) for xi in x])
-    y_true = np.array([db(3, xi, 0, t) for xi in x])
-    assert_allclose(y, y_true)
-
-def test_ddb3():
-    """Test that basis function matches naive implementation"""
-    t = np.array([0., 1., 2., 3., 4.])  # knots
-    x = np.linspace(-1., 5., 100)
-    y = np.array([bsplines.ddb3(xi, 0, t) for xi in x])
-    y_true = np.array([ddb(3, xi, 0, t) for xi in x])
-    assert_allclose(y, y_true)
-*/
+void slow_d3b3nonzeros(double x, int i, double *t, double out[4])
+{
+    out[0] = d3b(3, x, i-3, t);
+    out[1] = d3b(3, x, i-2, t);
+    out[2] = d3b(3, x, i-1, t);
+    out[3] = d3b(3, x, i  , t);
+}
 
 
 //-----------------------------------------------------------------------------
@@ -113,18 +132,19 @@ double* linspace(double start, double stop, int n)
   return x;
 }
 
-int close(double x, double y, double rtol)
+int close(double x, double y, double rtol, double atol)
 {
-    return (fabs(x - y) <= rtol * fabs(x)) ? 1 : 0;
+    return (fabs(x - y) <= rtol * fabs(x) + atol) ? 1 : 0;
 }
 
-int allclose(double *x, double *y, int n)
+int allclose(double *x, double *y, int n, double rtol, double atol)
 {
     for (int i=0; i<n; i++) {
-        if (close(x[i], y[i], 1e-10) == 0) return 0;
+        if (close(x[i], y[i], rtol, atol) == 0) return 0;
     }
     return 1;
 }
+
 
 //-----------------------------------------------------------------------------
 // tests
@@ -169,49 +189,48 @@ int test_is_monotonic()
 
 int test_b3nonzeros()
 {
-    double allknots[15] = {-2.0, -1.2, 0.0, 0.6, 1.0,
+    double allknots[15] = {-2.1, -2.0, -1.2, 0.0, 0.2, 1.0,
                             1.1,  1.5, 1.9, 2.3, 3.0,
                             4.0,  6.0, 7.0, 8.0, 8.1};
 
-    // knots is length 10 with padding of 2 and 3 before and after.
-    double *knots = allknots + 2;
+    // knots is length 10 with padding of 3 and 3 before and after.
+    double *knots = allknots + 3;
 
-    double *dtinv = alloc_dtinv(knots, 10);
+    double *consts = alloc_constants(knots, 10);
 
     double bvals[4];
+    double bvals_ref[4];
 
-    double x = 0.5; // one test value for now
-    int i = 0;  // index x falls in
+    int N = 100;
+    double *x = linspace(0.0, 6.0, N);
+    for (int i=0; i<N; i++) {
 
-    b3nonzeros(x, i, knots, dtinv, bvals);
-    ASSERT_CLOSE(bvals[0], b(3, x, i-3, knots));
-    ASSERT_CLOSE(bvals[1], b(3, x, i-2, knots));
-    ASSERT_CLOSE(bvals[2], b(3, x, i-1, knots));
-    ASSERT_CLOSE(bvals[3], b(3, x, i  , knots));
+        int j = find_index_binary(knots, 10, x[i]);
 
-    // derivative
-    db3nonzeros(x, i, knots, dtinv, bvals);
-    ASSERT_CLOSE(bvals[0], db(3, x, i-3, knots));
-    ASSERT_CLOSE(bvals[1], db(3, x, i-2, knots));
-    ASSERT_CLOSE(bvals[2], db(3, x, i-1, knots));
-    ASSERT_CLOSE(bvals[3], db(3, x, i  , knots));
+        // values
+        b3nonzeros(x[i], j, knots, consts, bvals);
+        slow_b3nonzeros(x[i], j, knots, bvals_ref);
+        ASSERT_ALLCLOSE(bvals, bvals_ref, 4);
 
-    // second deriv
-    d2b3nonzeros(x, i, knots, dtinv, bvals);
-    ASSERT_CLOSE(bvals[0], d2b(3, x, i-3, knots));
-    ASSERT_CLOSE(bvals[1], d2b(3, x, i-2, knots));
-    ASSERT_CLOSE(bvals[2], d2b(3, x, i-1, knots));
-    ASSERT_CLOSE(bvals[3], d2b(3, x, i  , knots));
+        // derivatives
+        db3nonzeros(x[i], j, knots, consts, bvals);
+        slow_db3nonzeros(x[i], j, knots, bvals_ref);
+        ASSERT_ALLCLOSE(bvals, bvals_ref, 4);
 
-    // third deriv
-    d3b3nonzeros(i, dtinv, bvals);
-    ASSERT_CLOSE(bvals[0], d3b(3, x, i-3, knots));
-    ASSERT_CLOSE(bvals[1], d3b(3, x, i-2, knots));
-    ASSERT_CLOSE(bvals[2], d3b(3, x, i-1, knots));
-    ASSERT_CLOSE(bvals[3], d3b(3, x, i  , knots));
+        // second derivatives
+        d2b3nonzeros(x[i], j, knots, consts, bvals);
+        slow_d2b3nonzeros(x[i], j, knots, bvals_ref);
+        ASSERT_ALLCLOSE(bvals, bvals_ref, 4);
 
+        // third derivatives
+        d3b3nonzeros(j, consts, bvals);
+        slow_d3b3nonzeros(x[i], j, knots, bvals_ref);
+        ASSERT_ALLCLOSE(bvals, bvals_ref, 4);
 
-    free_dtinv(dtinv);  // leaks memory if a test fails, but whatevs.
+    }
+
+    free(consts);  // leaks memory if a test fails, but whatevs.
+    free(x);
     return 0;
 }
            
