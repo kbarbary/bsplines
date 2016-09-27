@@ -4,7 +4,7 @@ import numpy as np
 cimport numpy as np
 
 __version__ = "0.1.0"
-__all__ = ["Spline1D"]
+__all__ = ["Spline1D", "DomainError"]
 
 
 cdef extern from "bs.h":
@@ -35,6 +35,7 @@ cdef extern from "bs.h":
     ctypedef enum bs_exttype:
         BS_EXTRAPOLATE
         BS_CONSTANT
+        BS_VALUE
         BS_RAISE
 
     ctypedef struct bs_ext:
@@ -56,6 +57,7 @@ cdef extern from "bs.h":
 
 
 class DomainError(Exception):
+    """Raised when spline input(s) are outside spline boundaries."""
     pass
 
 #------------------------------------------------------------------------------
@@ -77,29 +79,90 @@ cdef int assert_ok(bs_errorcode code) except -1:
         raise Exception("unrecognized error")
 
 
-cdef int parse_boundary_conditions(pybc, bs_bcs *out) except -1:
-    """Parse boundary conditions"""
-    cdef bs_bctype lefttype, righttype
-    
+cdef inline bs_array to_bs_array(double[:] x):
+    return bs_array(&x[0], x.shape[0], x.strides[0]//sizeof(double))
+
+
+cdef int try_parse_boundary_condition(pybc, bs_bc *parsed_bc):
+    """Try to parse a single Python value as a single boundary condition
+
+    Returns 1 if parsing is sucessful, else 0.
+    """
+
     if pybc == "natural":
-        out.left = out.right = bs_bc(BS_DERIV2, 0.0)
+        parsed_bc.type = BS_DERIV2
+        parsed_bc.value = 0.0
+        return 1
+    elif pybc == "flat":
+        parsed_bc.type = BS_DERIV1
+        parsed_bc.value = 0.0
+        return 1
     elif len(pybc) == 2:
-        left, right = pybc
+        if pybc[0] == "deriv1":
+            parsed_bc.type = BS_DERIV1
+            parsed_bc.value = pybc[1]  # need to check if numeric?
+            return 1
+        elif pybc[0] == "deriv2":
+            parsed_bc.type = BS_DERIV2
+            parsed_bc.value = pybc[1]  # need to check if numeric?
+            return 1
 
-        if left[0] == "deriv1":
-            lefttype = BS_DERIV1
-        else:
-            lefttype = BS_DERIV2
-        out.left = bs_bc(lefttype, left[1])
+    return 0
 
-        if right[0] == "deriv1":
-            righttype = BS_DERIV1
-        else:
-            righttype = BS_DERIV2
-        out.right = bs_bc(righttype, right[1])
+    
+cdef int try_parse_boundary_conditions(pybcs, bs_bcs *parsed_bcs):
+    """Try to parse boundary conditions. Returns 1 if sucessful, else 0."""
 
+    # try to parse the expression as a boundary condition: if it works,
+    # apply to both right and left.
+    if try_parse_boundary_condition(pybcs, &parsed_bcs.left):
+        parsed_bcs.right = parsed_bcs.left
+        return 1
+
+    # next, try to parse the expression as a left and right bc separately.
+    if (len(pybcs) == 2 and
+        try_parse_boundary_condition(pybcs[0], &parsed_bcs.left) and
+        try_parse_boundary_condition(pybcs[1], &parsed_bcs.right)):
+        return 1
+
+    return 0
+
+
+cdef int try_parse_extend(pyextend, bs_ext *parsed_ext):
+
+    if pyextend == 'extrapolate':
+        parsed_ext.type = BS_EXTRAPOLATE
+        return 1
+    elif pyextend == 'constant':
+        parsed_ext.type = BS_CONSTANT
+        return 1
+    elif pyextend == 'raise':
+        parsed_ext.type = BS_RAISE
+        return 1
     else:
-        raise ValueError("unrecognized boundary condition: " + repr(pybc))
+        try:
+            value = float(pyextend)
+        except:
+            return 0
+        parsed_ext.type = BS_VALUE
+        parsed_ext.value = value
+        return 1
+
+
+cdef int try_parse_extends(pyextends, bs_exts *parsed_exts):
+
+     # Try to parse the expression as a bs_ext. If it works, apply to both
+     # right and left.
+     if try_parse_extend(pyextends, &parsed_exts.left):
+         parsed_exts.right = parsed_exts.left
+         return 1
+
+     if (len(pyextends) == 2 and
+         try_parse_extend(pyextends[0], &parsed_exts.left) and
+         try_parse_extend(pyextends[0], &parsed_exts.right)):
+         return 1
+
+     return 0
 
 
 # -----------------------------------------------------------------------------
@@ -107,19 +170,68 @@ cdef int parse_boundary_conditions(pybc, bs_bcs *out) except -1:
 
 cdef class Spline1D:
     """
-    Spline1D(x, y, bc='natural')
+    Spline1D(x, y, bcs='natural', extend='constant')
 
     One dimensional cubic basis spline.
     
     Parameters
     ----------
-    x : 1-d `~numpy.ndarray`
-    y : 1-d `~numpy.ndarray`
+    x : `numpy.ndarray` (1-d)
+        Abscissa values.
+
+    y : `numpy.ndarray` (1-d)
+        Ordinate values to interpolate through.
+
+    bcs : str or tuple
+        One of:
+
+        - ``'natural'``: set second derivative to zero at boundary.
+        - ``'flat'``: set first derivative to zero at boundary.
+        - ``('deriv1', value)``: set first derivative to ``value`` at boundary.
+        - ``('deriv2', value)``: set second derivative to ``value'' at
+          boundary.
+
+        Can also be a 2-tuple of the above values specifying the left and
+        right boundary conditions separately.
+
+    extend : str or float or tuple
+        Controls what happens when a value outside the spline domain is
+        passed.
+
+        - ``'extrapolate'`` Extrapolate past the last knot.
+        - ``'constant'`` Return the value at the outermost knot.
+        - ``'raise'`` Raise a ``bspline.DomainError``.
+        - numeric value: return this value.
+
+        Can also be a 2-tuple of the above values specifying the left and
+        right behavior separately.
+
+
+    Examples
+    --------
+    
+    Specifying boundary conditions::
+
+        Spline1D(x, y, bcs=('deriv1', 4.0)) # set first derivative to 4 at
+                                            # both ends
+
+        Spline1D(x, y, bcs=('natural', ('deriv2', 0)))
+
+    Specifying beavior outside domain::
+
+        Spline1D(x, y, extend='extrapolate')
+        Spline1D(x, y, extend=('raise', 0.0))
+
     """
 
     cdef bs_spline1d *ptr   # pointer to c struct
     
-    def __cinit__(self, np.ndarray x, np.ndarray y, bc="natural"):
+    def __cinit__(self, np.ndarray x not None, np.ndarray y not None,
+                  bcs='natural', extend='constant'):
+
+        cdef bs_bcs parsed_bcs
+        cdef bs_exts parsed_exts
+        cdef bs_errorcode code
 
         # require 1-d arrays
         if (x.ndim != 1 or y.ndim != 1):
@@ -129,21 +241,19 @@ cdef class Spline1D:
         cdef double[:] x_ = np.require(x, dtype=np.dtype(np.double))
         cdef double[:] y_ = np.require(y, dtype=np.dtype(np.double))
 
-        cdef bs_array x_arr = bs_array(&x_[0], x_.shape[0],
-                                       x_.strides[0]//sizeof(double))
-        cdef bs_array y_arr = bs_array(&y_[0], y_.shape[0],
-                                       y_.strides[0]//sizeof(double))
+        cdef bs_array x_arr = to_bs_array(x_)
+        cdef bs_array y_arr = to_bs_array(y_)
 
         # parse boundary conditions
-        cdef bs_bcs bcs
-        parse_boundary_conditions(bc, &bcs)
+        if not try_parse_boundary_conditions(bcs, &parsed_bcs):
+            raise ValueError("unrecognized boundary condition(s): "+repr(bcs))
 
-        # extensions
-        cdef bs_exts exts = bs_exts(bs_ext(BS_CONSTANT, y_[0]),
-                                    bs_ext(BS_CONSTANT, y_[-1]))
+        # parse exterior behavior
+        if not try_parse_extends(extend, &parsed_exts):
+            raise ValueError("unrecognized extend: "+repr(extend))
 
-        cdef bs_errorcode code
-        code = bs_spline1d_create(x_arr, y_arr, bcs, exts, &self.ptr)
+        code = bs_spline1d_create(x_arr, y_arr, parsed_bcs, parsed_exts,
+                                  &self.ptr)
         assert_ok(code)
 
 

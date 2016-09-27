@@ -43,7 +43,7 @@ typedef struct {
 // out-of-domain behavior ("extension")
 //-----------------------------------------------------------------------------
 
-typedef enum {BS_EXTRAPOLATE, BS_CONSTANT, BS_RAISE} bs_exttype;
+typedef enum {BS_EXTRAPOLATE, BS_CONSTANT, BS_VALUE, BS_RAISE} bs_exttype;
 
 typedef struct {
   bs_exttype type;

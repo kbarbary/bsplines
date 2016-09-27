@@ -402,6 +402,16 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
   spline->n = N;
   spline->exts = exts;
   spline->consts = alloc_constants(spline->knots, N);
+
+  // process "constant" extends
+  if (spline->exts.left.type == BS_CONSTANT) {
+      spline->exts.left.type = BS_VALUE;
+      spline->exts.left.value = y.data[0];
+  }
+  if (spline->exts.right.type == BS_CONSTANT) {
+      spline->exts.right.type = BS_VALUE;
+      spline->exts.right.value = y.data[(N-1)*y.stride];
+  }
   
   // sparse matrix (last element not used, but we write to it
   double *A = malloc((3 * M + 1) * sizeof(double));

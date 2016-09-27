@@ -10,7 +10,7 @@ def test_spline1d_cubic():
 
     # 2nd deriv boundary conditions from true function
     bcs = (("deriv2", 6. * x[0]), ("deriv2", 6. * x[-1]))
-    spline = bsplines.Spline1D(x, y, bc=bcs)
+    spline = bsplines.Spline1D(x, y, bcs=bcs)
 
     xtest = np.linspace(-1., 4., 101)
     ytest_true = xtest**3
