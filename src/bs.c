@@ -166,37 +166,6 @@ static void d3b3nonzeros(int i, double* restrict consts, double out[4])
 
 
 //-----------------------------------------------------------------------------
-// unit basis versions of above
-// knot locations in this basis are [0, 1, ..., N-1]
-// For 0 <= x < 1 return b_{-3}(x), b_{-2}(x), b_{-1}(x), b_0(x)
-// For i <= x < i+1 subtract i from x first. to get b_{i-3}(x), b_{i-2}(x), ...
-// (works because all the basis functions are the same with a shift,
-//  so b_{-3}(x) = b_{i-3}(i+x).
-//-----------------------------------------------------------------------------
-
-static const double ONESIXTH = 1./6.;
-
-static void b3unonzeros(double x, double out[4])
-{
-
-    double dx1 = x + 2.0;
-    double dx2 = x + 1.0;
-    double dx4 = 1.0 - x;
-    double dx5 = 2.0 - x;
-    double dx6 = 3.0 - x;
-
-    double tmp1 = ONESIXTH * dx4 * dx4;
-    double tmp2 = ONESIXTH * x * x;
-    double tmp3 = ONESIXTH * (dx2 * dx4 + dx5 * x);
-    
-    out[0] = dx4 * tmp1;
-    out[1] = dx1 * tmp1 + dx5 * tmp3;
-    out[2] = dx6 * tmp2 + dx2 * tmp3;
-    out[3] = x   * tmp2;
-}
-
-
-//-----------------------------------------------------------------------------
 // knots
 //-----------------------------------------------------------------------------
 
@@ -413,10 +382,10 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
       spline->exts.right.value = y.data[(N-1)*y.stride];
   }
   
-  // sparse matrix (last element not used, but we write to it
+  // sparse matrix (last element not used, but we write to it)
   double *A = malloc((3*M + 1) * sizeof(double));
 
-  // The first row is the constraint on a derivative of the spline at x[0]
+  // The first row is the left boundary condition
   if (bcs.left.type == BS_DERIV1) {
       db3nonzeros(spline->knots[0], 0, spline->knots, spline->consts, A);
   }
@@ -523,3 +492,105 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
   return BS_OK;
 }
 
+
+//-----------------------------------------------------------------------------
+// unit basis versions of b3nonzeros and friends
+// knot locations in this basis are [0, 1, ..., N-1]
+// For 0 <= x < 1 return b_{-3}(x), b_{-2}(x), b_{-1}(x), b_0(x)
+// For i <= x < i+1 subtract i from x first. to get b_{i-3}(x), b_{i-2}(x), ...
+// (works because all the basis functions are the same with a shift,
+//  so b_{-3}(x) = b_{i-3}(i+x).
+//-----------------------------------------------------------------------------
+
+static const ONESIXTH = 0.1666666666666666666;
+
+static void b3unonzeros(double x, double out[4])
+{
+
+    double dx1 = x + 2.0;
+    double dx2 = x + 1.0;
+    double dx4 = 1.0 - x;
+    double dx5 = 2.0 - x;
+    double dx6 = 3.0 - x;
+
+    double tmp1 = ONESIXTH * dx4 * dx4;
+    double tmp2 = ONESIXTH * x * x;
+    double tmp3 = ONESIXTH * (dx2 * dx4 + dx5 * x);
+    
+    out[0] = dx4 * tmp1;
+    out[1] = dx1 * tmp1 + dx5 * tmp3;
+    out[2] = dx6 * tmp2 + dx2 * tmp3;
+    out[3] = x   * tmp2;
+}
+
+
+// derivatives of previous function
+static void db3unonzeros(double x, double out[4])
+{
+
+    double dx1 = x + 2.0;
+    double dx2 = x + 1.0;
+    double dx4 = 1.0 - x;
+    double dx5 = 2.0 - x;
+    double dx6 = 3.0 - x;
+  
+    double tmp1 = ONESIXTH * dx4;
+    double tmp2 = ONESIXTH * x;
+    double tmp3 = ONESIXTH * dx2;
+    double tmp4 = ONESIXTH * dx5;
+  
+    out[0] = -3.0 * dx4 * tmp1;
+  
+    out[1] = ((        dx4 - 2.0 * dx1) * tmp1 +
+              (-       dx4 -       dx5) * tmp3 +
+              (- 2.0 * x +       dx5) * tmp4 +
+              ONESIXTH * dx5 * dx4);
+
+    out[2] = ((-     x + 2.0 * dx6) * tmp2 +
+              (2.0 * dx4 -       dx2) * tmp3 +
+              (      x +       dx2) * tmp4
+              - ONESIXTH * dx2 * x);
+
+    out[3] = 3.0 * x * tmp2;
+}
+
+
+// second derivatives
+static void d2b3unonzeros(double x, double out[4])
+{
+    double dx1 = x + 2.0;
+    double dx2 = x + 1.0;
+    double dx4 = 1.0 - x;
+    double dx5 = 2.0 - x;
+    double dx6 = 3.0 - x;
+  
+    out[0] = ONESIXTH * 6.0 * dx4;
+  
+    out[1] = ONESIXTH * (- 2.0 * dx4
+                         - 2.0 * (dx4 - dx1)
+                         -       (dx4 - dx2)
+                         +       (-dx5 - dx4)
+                         -       (dx5 - dx2)
+                         - 2.0 * (dx5 - x)
+                         - 2.0 * dx5);
+
+    out[2] = ONESIXTH * (- 2.0 * x
+                         + 2.0 * (dx6 - x)
+                         + 2.0 * (dx4 - dx2)
+                         - 2.0 * dx2
+                         +       (dx5 - x)
+                         -       (dx2 + x)
+                         +       (dx5 - dx2));
+
+    out[3] = ONESIXTH * 6.0 * x;
+}
+
+// third derivatives
+static void d3b3nonzeros(double out[4])
+{
+  
+    out[0] = -1.0;
+    out[1] =  3.0;
+    out[2] = -3.0;
+    out[3] =  1.0;
+}

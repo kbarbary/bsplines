@@ -15,19 +15,25 @@ typedef enum {
 
 
 //-----------------------------------------------------------------------------
-// Array (for input/output)
+// Input data types
 //-----------------------------------------------------------------------------
+
 typedef struct {
-  double *data;
-  int length;
-  int stride;
+    double *data;
+    int length;
+    int stride;
 } bs_array;
+
+typedef struct {
+    double min; // inclusive
+    double max; // inclusive
+} bs_range;
 
 //-----------------------------------------------------------------------------
 // Boundary conditions
 //-----------------------------------------------------------------------------
 
-typedef enum {BS_DERIV1, BS_DERIV2} bs_bctype;
+typedef enum {BS_DERIV1, BS_DERIV2, BS_NOTAKNOT} bs_bctype;
 
 typedef struct {
   bs_bctype type;
@@ -73,3 +79,14 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out);
 void         bs_spline1d_free(bs_spline1d *spline);
 
 #endif
+
+typedef struct {
+    double xmin;
+    double xmax;
+    double *coeffs;
+    int n;
+    bs_exts exts;
+} bs_uspline1d;
+
+bs_errorcode bs_uspline1d_create(bs_range x, bs_array y,
+                                 bs_bcs bcs, bs_exts exts, bs_spline1d **out);
