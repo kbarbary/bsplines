@@ -238,18 +238,81 @@ static double* alloc_constants(double *knots, int n) {
 // |   x x x            |
 // |     x x x          |
 // |        ...         |
+// |          x x x     |
 // |            x x x   |
 // |              x x x |
 // |          x x x x x |
 //
 // So we'll eliminate the trailing two elements in the first row
-// and the leading two elements in the last row. Then we can feed it to
+// and/or the leading two elements in the last row. Then we can feed it to
 // the standard solve().
-//
-// strategy is basically:
-// subtract (row 3) * (A[4,0] / A[4,3]) from row 0
-// subtract (row 2) * (A[3,0] / A[3,2]) from row 0
 
+static void fill_left_notaknot_condition(bs_spline1d *spline, double *A,
+                                         double *b)
+{
+    double row[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+    double buf[4];
+
+    // fill the row
+    d3b3nonzeros(0, spline->consts, row);
+    d3b3nonzeros(1, spline->consts, buf);
+    for (int i=0; i<4; i++) row[i+1] -= buf[i];
+
+    // RHS value is initially zero
+    b[0] = 0.0;
+
+    // eliminate last element in row by subtracting 4th row scaled.
+    double t = row[4] / A[3*3+2];
+    row[2] -= A[3*3+0] * t;
+    row[3] -= A[3*3+1] * t;
+    // row[4] -= A[3*3+2] * t; // sets to zero by construction
+    b[0] -= b[3] * t;
+
+    // eliminate second to last element by subtracting 3rd row scaled.
+    t = row[3] / A[3*2+2];
+    row[1] -= A[3*2+0] * t;
+    row[2] -= A[3*2+1] * t;
+    // row[3] -= A[3*2+2] * t; // sets to zero by construction
+    b[0] -= b[2] * t;
+
+    // store results into first row of A;
+    for (int i=0; i<3; i++) A[i] = row[i];
+}
+
+static void fill_right_notaknot_condition(bs_spline1d *spline, double *A,
+                                          double *b)
+{
+    int N = spline->n;
+    int M = N + 2;
+
+    double row[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+    double buf[4];
+
+    // fill the row
+    d3b3nonzeros(N-3, spline->consts, row);
+    d3b3nonzeros(N-2, spline->consts, buf);
+    for (int i=0; i<4; i++) row[i+1] -= buf[i];
+
+    // RHS value is initially zero
+    b[M-1] = 0.0;
+
+    // eliminate first element in row by subtracting (M-4)th row scaled.
+    double t = row[0] / A[3*(M-4)+0];
+    // row[0] -= A[3*(M-4)+0] * t;  // sets to zero by construction
+    row[1] -= A[3*(M-4)+1] * t;
+    row[2] -= A[3*(M-4)+2] * t;
+    b[M-1] -= b[M-4] * t;
+
+    // eliminate second element by subtracting (M-3)th row scaled.
+    t = row[1] / A[3*(M-3)+0];
+    // row[1] -= A[3*(M-3)+0] * t;  // sets to zero by construction
+    row[2] -= A[3*(M-3)+1] * t;
+    row[3] -= A[3*(M-3)+2] * t;
+    b[M-1] -= b[M-3] * t;
+
+    // store results into first row of A;
+    for (int i=0; i<3; i++) A[3*(M-1)+i] = row[i+2];
+}
 
 //-----------------------------------------------------------------------------
 // solve()
@@ -382,41 +445,49 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
       spline->exts.right.value = y.data[(N-1)*y.stride];
   }
   
-  // sparse matrix (last element not used, but we write to it)
-  double *A = malloc((3*M + 1) * sizeof(double));
+  double *A = malloc(3 * M * sizeof(double));  // sparse row representation
+  double *b = malloc(M * sizeof(double));
 
-  // The first row is the left boundary condition
-  if (bcs.left.type == BS_DERIV1) {
-      db3nonzeros(spline->knots[0], 0, spline->knots, spline->consts, A);
-  }
-  else {  // type must be BS_DERIV2
-      d2b3nonzeros(spline->knots[0], 0, spline->knots, spline->consts, A);
-  }
-
-  // At a knot i, the spline has three non-zero components:
-  // b_{i-3}, b_{i-2}, b{i-1}. (b_i is zero at knot i).
+  // fill rows 1 through M-1 with values of b_{i-3}, b_{i-2}, b{i-1} at knot i.
   for (int i=0; i<N; i++) {
       b3nonzeros(spline->knots[i], i, spline->knots, spline->consts,
                  A + 3*(i+1));
-  }
-
-  // derivatives at final point
-  if (bcs.right.type == BS_DERIV1) {
-      db3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->consts,
-                  A + 3*(M-1));
-  }
-  else {  // type must be BS_DERIV2
-      d2b3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->consts,
-                   A + 3*(M-1));
-  }
-
-  // right hand side:
-  double *b = malloc(M * sizeof(double));
-  b[0] = bcs.left.value;
-  for (int i=0; i<N; i++) {
       b[i+1] = y.data[i * y.stride];
   }
-  b[M-1] = bcs.right.value;
+
+  double buf[4];
+
+  // Left boundary condition
+  switch (bcs.left.type) {
+  case BS_DERIV1:
+      db3nonzeros(spline->knots[0], 0, spline->knots, spline->consts, buf);
+      for (int i=0; i<3; i++) A[i] = buf[i];
+      b[0] = bcs.left.value;
+      break;
+  case BS_DERIV2:
+      d2b3nonzeros(spline->knots[0], 0, spline->knots, spline->consts, buf);
+      for (int i=0; i<3; i++) A[i] = buf[i];
+      b[0] = bcs.left.value;
+      break;
+  case BS_NOTAKNOT:
+      fill_left_notaknot_condition(spline, A, b);
+  }
+
+  // Right boundary condition
+  switch (bcs.right.type) {
+  case BS_DERIV1:
+      db3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->consts, buf);
+      for (int i=0; i<3; i++) A[3*(M-1)+i] = buf[i];
+      b[M-1] = bcs.right.value;
+      break;
+  case BS_DERIV2:
+      d2b3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->consts, buf);
+      for (int i=0; i<3; i++) A[3*(M-1)+i] = buf[i];
+      b[M-1] = bcs.right.value;
+      break;
+  case BS_NOTAKNOT:
+      fill_right_notaknot_condition(spline, A, b);
+  }
   
   // Solve
   solve(A, b, M);
@@ -586,7 +657,7 @@ static void d2b3unonzeros(double x, double out[4])
 }
 
 // third derivatives
-static void d3b3nonzeros(double out[4])
+static void d3b3unonzeros(double out[4])
 {
   
     out[0] = -1.0;

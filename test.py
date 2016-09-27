@@ -5,6 +5,19 @@ import pytest
 
 from bsplines import Spline1D, DomainError
 
+def test_spline1d_notaknot():
+    x = np.array([-1., -0.5, 0.5, 2.2, 3.8, 4.])
+    y = x**3
+
+    spline = Spline1D(x, y, bcs='notaknot')
+
+    xtest = np.linspace(-1., 4., 101)
+    ytest_true = xtest**3
+    ytest = spline(xtest)
+
+    assert_allclose(ytest, ytest_true, atol=1e-14)
+
+
 def test_spline1d_cubic():
     x = np.array([-1., -0.5, 0.5, 2.2, 3.8, 4.])
     y = x**3

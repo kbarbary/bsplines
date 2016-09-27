@@ -23,6 +23,7 @@ cdef extern from "bs.h":
     ctypedef enum bs_bctype:
         BS_DERIV1
         BS_DERIV2
+        BS_NOTAKNOT
         
     ctypedef struct bs_bc:
         bs_bctype type
@@ -89,6 +90,10 @@ cdef int try_parse_boundary_condition(pybc, bs_bc *parsed_bc):
     Returns 1 if parsing is sucessful, else 0.
     """
 
+    if pybc == "notaknot":
+        parsed_bc.type = BS_NOTAKNOT
+        parsed_bc.value = 0.0  # not used
+        return 1
     if pybc == "natural":
         parsed_bc.type = BS_DERIV2
         parsed_bc.value = 0.0
