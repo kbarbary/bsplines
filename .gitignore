@@ -17,6 +17,7 @@ src/runtests
 
 # sphinx
 docs/_build
+docs/api
 
 # benchmark plots directory
 benchmarks

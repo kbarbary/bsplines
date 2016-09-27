@@ -92,27 +92,36 @@ point:
    c_{-3} b'''_{-3}(x_<) + c_{-2} b'''_{-2}(x_<) + c_{-1} b'''_{-1}(x_<) + c_{0} b'''_{0}(x_<) = \\
    c_{-2} b'''_{-2}(x_1) + c_{-1} b'''_{-1}(x_1) + c_{0} b'''_{0}(x_1) + c_{1} b'''_{1}(x_1)
 
-where :math:`x_<` is a value just smaller than :math:`x_1`. The third derivatives of the basis functions are constant between knots (:math:`x_i \le x < x_{i+1}`), so :math:`x_<` can be replaced by :math:`x_0`. Subtract the right hand side from both sides:
+where :math:`x_<` is a value just smaller than :math:`x_1`. The third
+derivatives of the basis functions are constant between knots
+(:math:`x_i \le x < x_{i+1}`), so :math:`x_<` can be replaced by
+:math:`x_0`. Subtract the right hand side from both sides:
 
 .. math::
 
    c_{-3} b'''_{-3}(x_0) + c_{-2} (b'''_{-2}(x_0) - b'''_{-2}(x_1))  + c_{-1} (b'''_{-1}(x_0) - b'''_{-1}(x_1))  + {} \\
    + c_{0} (b'''_{0}(x_0) - b'''_{0}(x_1)) - c_{1} b'''_{1}(x_1) = 0
 
-The matrix in the original equation then becomes:
+The first row in the matrix in the original equation then becomes:
 
 .. math::
 
    \left( \begin{array}{cccccc}
-   b'''_{-3}(x_0) & b'''_{-2}(x_0) - b'''_{-2}(x_1) & b'''_{-1}(x_0) - b'''_{-1}(x_1) & b'''_{0}(x_0) - b'''_{0}(x_1) & -b'''_{1}(x_1) \\
-   b_{-3}(x_0)    & b_{-2}(x_0)  & b_{-1}(x_0)  &            \\
-                  & b_{-2}(x_1)  & b_{-1}(x_1)  & b_{0}(x_1) \\
-   \\
-                  &              &              & \ddots     \\
-   \\
-                  &              & b_{N-5}(x_{N-2})  & b_{N-4}(x_{N-2})  & b_{N-3}(x_{N-2})  &                  \\
-                  &              &                   & b_{N-4}(x_{N-1})  & b_{N-3}(x_{N-1})  & b_{N-2}(x_{N-1}) \\
-                  & b'''_{N-6}(x_{N-3}) & b'''_{N-5}(x_{N-3}) - b'''_{N-5}(x_{N-2}) & b'''_{N-4}(x_{N-3}) - b'''_{N-4}(x_{N-2}) & b'''_{N-3}(x_{N-3}) - b'''_{N-3}(x_{N-2}) & -b'''_{N-2}(x_{N-2})
+   b'''_{-3}(x_0) & b'''_{-2}(x_0) - b'''_{-2}(x_1) & b'''_{-1}(x_0) - b'''_{-1}(x_1) & b'''_{0}(x_0) - b'''_{0}(x_1) & -b'''_{1}(x_1) & \ldots
    \end{array} \right)
 
+Similarly, the last row becomes:
+
+.. math::
+   
+   \left( \begin{array}{ccccc}
+   \ldots & b'''_{N-6}(x_{N-3}) & b'''_{N-5}(x_{N-3}) - & b'''_{N-4}(x_{N-3}) -  & b'''_{N-3}(x_{N-3}) - & -b'''_{N-2}(x_{N-2}) \\
+          &                     & \qquad  b'''_{N-5}(x_{N-2}) & \qquad   b'''_{N-4}(x_{N-2}) & \qquad  b'''_{N-3}(x_{N-2}) &
+   \end{array} \right)
+
+
 and the first and last elements on the right hand side are replaced with 0.
+
+We can use the third and forth rows to reduce the first row to three
+non-zero elements to get this in a form like the original equation,
+and similarly for the last row.

@@ -1,7 +1,9 @@
 bsplines
 ========
 
-BSplines is a Python package for fast cubic basis splines. For some mathematical background see `Math`.
+BSplines is a Python package for fast cubic basis splines in one and
+two dimensions. For some mathematical background see
+:doc:`background`.
 
 .. toctree::
    :hidden:
@@ -12,5 +14,7 @@ BSplines is a Python package for fast cubic basis splines. For some mathematical
 API
 ---
 
-.. automodule:: bsplines
-   :imported-members:
+.. autosummary::
+   :toctree: api
+
+   bsplines.Spline1D

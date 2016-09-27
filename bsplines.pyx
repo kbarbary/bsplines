@@ -188,7 +188,7 @@ cdef class Spline1D:
         - ``'natural'``: set second derivative to zero at boundary.
         - ``'flat'``: set first derivative to zero at boundary.
         - ``('deriv1', value)``: set first derivative to ``value`` at boundary.
-        - ``('deriv2', value)``: set second derivative to ``value'' at
+        - ``('deriv2', value)``: set second derivative to ``value`` at
           boundary.
 
         Can also be a 2-tuple of the above values specifying the left and
@@ -264,22 +264,20 @@ cdef class Spline1D:
         bs_spline1d_free(self.ptr)
 
     def __call__(self, double[:] x):
-        cdef double[:] outview
         
-        out = np.empty(len(x))
-        outview = out
+        cdef bs_errorcode code
+        
+        out = np.empty(len(x), dtype=np.float64)
+        cdef double[:] outview = out
 
-        cdef bs_array x_arr = bs_array(&x[0], x.shape[0],
-                                       x.strides[0]//sizeof(double))
-        cdef bs_array out_arr = bs_array(&outview[0], outview.shape[0],
-                                         outview.strides[0]//sizeof(double))
-
-        cdef bs_errorcode code = bs_spline1d_eval(self.ptr, x_arr, out_arr);
+        code = bs_spline1d_eval(self.ptr, to_bs_array(x),
+                                to_bs_array(outview))
         assert_ok(code)
 
         return out
 
     def coefficients(self):
+        """Return the spline coefficients as a copy"""
         cdef double[:] view = <double[:(self.ptr.n+2)]>(self.ptr.coeffs)
         return np.array(view)  # copy
 
