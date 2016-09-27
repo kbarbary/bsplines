@@ -414,7 +414,7 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
   }
   
   // sparse matrix (last element not used, but we write to it
-  double *A = malloc((3 * M + 1) * sizeof(double));
+  double *A = malloc((3*M + 1) * sizeof(double));
 
   // The first row is the constraint on a derivative of the spline at x[0]
   if (bcs.left.type == BS_DERIV1) {
@@ -490,7 +490,7 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
       case BS_EXTRAPOLATE:
         i = 0;
         break;
-      case BS_CONSTANT:
+      case BS_VALUE:
         out.data[j * out.stride] = spline->exts.left.value;
         continue;
       case BS_RAISE:
@@ -504,7 +504,7 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
       case BS_EXTRAPOLATE:
         i = spline->n - 2;
         break;
-      case BS_CONSTANT:
+      case BS_VALUE:
         out.data[j * out.stride] = spline->exts.right.value;
         continue;
       case BS_RAISE:

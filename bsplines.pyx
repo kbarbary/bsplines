@@ -226,20 +226,19 @@ cdef class Spline1D:
 
     cdef bs_spline1d *ptr   # pointer to c struct
     
-    def __cinit__(self, np.ndarray x not None, np.ndarray y not None,
-                  bcs='natural', extend='constant'):
+    def __cinit__(self, x, y, bcs='natural', extend='constant'):
 
         cdef bs_bcs parsed_bcs
         cdef bs_exts parsed_exts
         cdef bs_errorcode code
+        
+        # convert to double arrays if needed
+        cdef double[:] x_ = np.asarray(x, dtype=np.float64)
+        cdef double[:] y_ = np.asarray(y, dtype=np.float64)
 
         # require 1-d arrays
-        if (x.ndim != 1 or y.ndim != 1):
+        if (x_.ndim != 1 or y_.ndim != 1):
             raise ValueError("x and y must be 1-d arrays")
-
-        # convert to double arrays if needed
-        cdef double[:] x_ = np.require(x, dtype=np.dtype(np.double))
-        cdef double[:] y_ = np.require(y, dtype=np.dtype(np.double))
 
         cdef bs_array x_arr = to_bs_array(x_)
         cdef bs_array y_arr = to_bs_array(y_)
