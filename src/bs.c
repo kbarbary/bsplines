@@ -1,6 +1,8 @@
 #include <stdlib.h>
+#include <math.h>
 #include <bs.h>
 
+#include <stdio.h> //debug
 //-----------------------------------------------------------------------------
 // search functions
 //
@@ -247,17 +249,27 @@ static double* alloc_constants(double *knots, int n) {
 // and/or the leading two elements in the last row. Then we can feed it to
 // the standard solve().
 
-static void fill_left_notaknot_condition(bs_spline1d *spline, double *A,
-                                         double *b)
+// fill `row` with the five nonzero elements for applying the boundary
+// condition at knot `i` (either i=1 or i=N-2).
+static void notaknot_row(bs_spline1d *spline, int i, double row[5])
 {
-    double row[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
     double buf[4];
 
-    // fill the row
-    d3b3nonzeros(0, spline->consts, row);
-    d3b3nonzeros(1, spline->consts, buf);
-    for (int i=0; i<4; i++) row[i+1] -= buf[i];
+    d3b3nonzeros(i-1, spline->consts, row);
+    d3b3nonzeros(i, spline->consts, buf);
+    row[4] = 0.0;
+    for (int i=0; i<4; i++) {
+        row[i+1] -= buf[i];
+    }
+}
 
+static void fill_left_notaknot_condition(const double firstrow[5], double *A,
+                                         double *b)
+{
+    // copy input row so we don't modify row
+    double row[5];
+    for (int i=0; i<5; i++) row[i] = firstrow[i];
+    
     // RHS value is initially zero
     b[0] = 0.0;
 
@@ -279,19 +291,12 @@ static void fill_left_notaknot_condition(bs_spline1d *spline, double *A,
     for (int i=0; i<3; i++) A[i] = row[i];
 }
 
-static void fill_right_notaknot_condition(bs_spline1d *spline, double *A,
-                                          double *b)
+static void fill_right_notaknot_condition(const double lastrow[5], double *A,
+                                          double *b, int M)
 {
-    int N = spline->n;
-    int M = N + 2;
-
-    double row[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
-    double buf[4];
-
-    // fill the row
-    d3b3nonzeros(N-3, spline->consts, row);
-    d3b3nonzeros(N-2, spline->consts, buf);
-    for (int i=0; i<4; i++) row[i+1] -= buf[i];
+    // copy input row so we don't modify row
+    double row[5];
+    for (int i=0; i<5; i++) row[i] = lastrow[i];
 
     // RHS value is initially zero
     b[M-1] = 0.0;
@@ -411,6 +416,14 @@ static int is_monotonic(bs_array x)
   return ok;
 }
 
+//debug
+void print_a_and_b(double *A, double  *b, int M)
+{
+    printf("\n");
+    for (int i=0; i<M; i++)
+        printf("| %f  %f  %f |    | %f |\n",
+               A[3*i+0], A[3*i+1], A[3*i+2], b[i]);
+}
 
 //-----------------------------------------------------------------------------
 // spline1d
@@ -455,7 +468,7 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
       b[i+1] = y.data[i * y.stride];
   }
 
-  double buf[4];
+  double buf[5];
 
   // Left boundary condition
   switch (bcs.left.type) {
@@ -470,7 +483,8 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
       b[0] = bcs.left.value;
       break;
   case BS_NOTAKNOT:
-      fill_left_notaknot_condition(spline, A, b);
+      notaknot_row(spline, 1, buf);
+      fill_left_notaknot_condition(buf, A, b);
   }
 
   // Right boundary condition
@@ -486,11 +500,14 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
       b[M-1] = bcs.right.value;
       break;
   case BS_NOTAKNOT:
-      fill_right_notaknot_condition(spline, A, b);
+      notaknot_row(spline, N-2, buf);
+      fill_right_notaknot_condition(buf, A, b, M);
   }
   
   // Solve
+  print_a_and_b(A, b, M);
   solve(A, b, M);
+  print_a_and_b(A, b, M);
   free(A);
   spline->coeffs = b;
 
@@ -573,7 +590,7 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
 //  so b_{-3}(x) = b_{i-3}(i+x).
 //-----------------------------------------------------------------------------
 
-static const ONESIXTH = 0.1666666666666666666;
+static const double ONESIXTH  = 0.1666666666666666666;
 
 static void b3unonzeros(double x, double out[4])
 {
@@ -664,4 +681,147 @@ static void d3b3unonzeros(double out[4])
     out[1] =  3.0;
     out[2] = -3.0;
     out[3] =  1.0;
+}
+
+
+bs_errorcode bs_uspline1d_create(bs_range x, bs_array y, bs_bcs bcs,
+                                 bs_exts exts, bs_uspline1d **out)
+{
+    bs_uspline1d* spline = malloc(sizeof(bs_uspline1d));
+
+    int N = y.length;
+    int M = N + 2;
+    double didx = (N - 1) / (x.max - x.min); // equal to  1 / (step size)
+
+    // values, first and second derivatives of b3_{i-3}, b3_{i-2}, b3_{i-1}
+    // at knot i.
+    const double b3vals[3] = {1.0/6.0, 2.0/3.0, 1.0/6.0};
+    const double db3vals[3] = {-0.5 * didx, 0.0, 0.5 * didx};
+    const double d2b3vals[3] = {didx * didx, -2.0 * didx * didx, didx * didx};
+    const double notaknot_row[5] = {-1.0, 4.0, -6.0, 4.0, -1.0};
+    
+    spline->x = x;
+    spline->didx = didx;
+
+    spline->n = N;
+    spline->exts = exts;
+
+    // process "constant" extends
+    if (spline->exts.left.type == BS_CONSTANT) {
+        spline->exts.left.type = BS_VALUE;
+        spline->exts.left.value = y.data[0];
+    }
+    if (spline->exts.right.type == BS_CONSTANT) {
+        spline->exts.right.type = BS_VALUE;
+        spline->exts.right.value = y.data[(N-1)*y.stride];
+    }
+
+    double *A = malloc(3 * M * sizeof(double));  // sparse row representation
+    double *b = malloc(M * sizeof(double));
+
+  // fill rows 1 through M-1 with values of b_{i-3}, b_{i-2}, b{i-1} at knot i.
+  for (int i=0; i<N; i++) {
+      for (int j=0; j<3; j++) A[3*(i+1)+j] = b3vals[j];
+      b[i+1] = y.data[i * y.stride];
+  }
+
+  // Left boundary condition
+  switch (bcs.left.type) {
+  case BS_DERIV1:
+      for (int i=0; i<3; i++) A[i] = db3vals[i];
+      b[0] = bcs.left.value;
+      break;
+  case BS_DERIV2:
+      for (int i=0; i<3; i++) A[i] = d2b3vals[i];
+      b[0] = bcs.left.value;
+      break;
+  case BS_NOTAKNOT:
+      fill_left_notaknot_condition(notaknot_row, A, b);
+  }
+
+  // Right boundary condition
+  switch (bcs.right.type) {
+  case BS_DERIV1:
+      for (int i=0; i<3; i++) A[3*(M-1)+i] = db3vals[i];
+      b[M-1] = bcs.right.value;
+      break;
+  case BS_DERIV2:
+      for (int i=0; i<3; i++) A[3*(M-1)+i] = d2b3vals[i];
+      b[M-1] = bcs.right.value;
+      break;
+  case BS_NOTAKNOT:
+      fill_right_notaknot_condition(notaknot_row, A, b, M);
+  }
+
+  print_a_and_b(A, b, M);
+  solve(A, b, M);
+  print_a_and_b(A, b, M);
+
+  free(A);
+  spline->coeffs = b;
+
+  *out = spline;
+  return BS_OK;
+}
+
+
+void bs_uspline1d_free(bs_uspline1d* spline)
+{
+    if (spline != NULL) {
+        free(spline->coeffs);
+        free(spline);
+    }
+}
+
+bs_errorcode bs_uspline1d_eval(bs_uspline1d *spline, bs_array x, bs_array out)
+{
+    int i;
+    double xval;
+    double xfloor;
+    double b3vals[4];
+    for (int j=0; j<x.length; j++) {
+        // translate x onto unit basis
+        xval = (x.data[j*x.stride] - spline->x.min) * spline->didx;
+        xfloor = floor(xval);
+        i = (int)xfloor;
+
+        // index outside left boundary
+        if (i < 0) {
+            switch (spline->exts.left.type) {
+            case BS_EXTRAPOLATE:
+                i = 0;
+                xfloor = 0.0;
+                break;
+            case BS_VALUE:
+                out.data[j * out.stride] = spline->exts.left.value;
+                continue;
+            case BS_RAISE:
+                return BS_DOMAINERROR;
+            }
+        }
+
+        // index outside right boundary
+        else if (i >= spline->n-1) {
+            switch (spline->exts.right.type) {
+            case BS_EXTRAPOLATE:
+                i = spline->n - 2;
+                xfloor = i;
+                break;
+            case BS_VALUE:
+                out.data[j * out.stride] = spline->exts.right.value;
+                continue;
+            case BS_RAISE:
+                return BS_DOMAINERROR;
+            }
+        }
+
+        // if we get this far, we're either extrapolating or xval is in range.
+        b3unonzeros(xval - xfloor, b3vals);
+        out.data[j*out.stride] = (spline->coeffs[i]   * b3vals[0] +
+                                  spline->coeffs[i+1] * b3vals[1] +
+                                  spline->coeffs[i+2] * b3vals[2] +
+                                  spline->coeffs[i+3] * b3vals[3]);
+    }
+
+    return BS_OK;
 }

@@ -4,7 +4,7 @@ import numpy as np
 cimport numpy as np
 
 __version__ = "0.1.0"
-__all__ = ["Spline1D", "DomainError"]
+__all__ = ["Spline1D", "USpline1D", "DomainError"]
 
 
 cdef extern from "bs.h":
@@ -19,6 +19,10 @@ cdef extern from "bs.h":
         double *data
         int length
         int stride
+
+    ctypedef struct bs_range:
+        double min
+        double max
 
     ctypedef enum bs_bctype:
         BS_DERIV1
@@ -56,7 +60,21 @@ cdef extern from "bs.h":
     bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
     void bs_spline1d_free(bs_spline1d *spline)
 
+    ctypedef struct bs_uspline1d:
+        bs_range x
+        double didx
+        double *coeffs
+        int n
+        bs_exts exts
 
+    bs_errorcode bs_uspline1d_create(bs_range x, bs_array y,
+                                     bs_bcs bcs, bs_exts exts,
+                                     bs_uspline1d **out)
+    bs_errorcode bs_uspline1d_eval(bs_uspline1d *spline, bs_array x,
+                                   bs_array out)
+    void bs_uspline1d_free(bs_uspline1d *spline)
+
+    
 class DomainError(Exception):
     """Raised when spline input(s) are outside spline boundaries."""
     pass
@@ -171,11 +189,11 @@ cdef int try_parse_extends(pyextends, bs_exts *parsed_exts):
 
 
 # -----------------------------------------------------------------------------
-# 1-d spline
+# 1-d splines
 
 cdef class Spline1D:
     """
-    Spline1D(x, y, bcs='natural', extend='constant')
+    Spline1D(x, y, bcs='notaknot', extend='constant')
 
     One dimensional cubic basis spline.
     
@@ -190,6 +208,8 @@ cdef class Spline1D:
     bcs : str or tuple
         One of:
 
+        - ``'notaknot'``: The "not a knot" condition: the third derivative is
+          enforced to be continuous at the first interior knot point.
         - ``'natural'``: set second derivative to zero at boundary.
         - ``'flat'``: set first derivative to zero at boundary.
         - ``('deriv1', value)``: set first derivative to ``value`` at boundary.
@@ -231,7 +251,7 @@ cdef class Spline1D:
 
     cdef bs_spline1d *ptr   # pointer to c struct
     
-    def __cinit__(self, x, y, bcs='natural', extend='constant'):
+    def __cinit__(self, x, y, bcs='notaknot', extend='constant'):
 
         cdef bs_bcs parsed_bcs
         cdef bs_exts parsed_exts
@@ -286,3 +306,112 @@ cdef class Spline1D:
         cdef double[:] view = <double[:(self.ptr.n+2)]>(self.ptr.coeffs)
         return np.array(view)  # copy
 
+
+cdef class USpline1D:
+    """
+    USpline1D(xlims, y, bcs='notaknot', extend='constant')
+
+    One dimensional cubic basis spline with uniform grid spacing.
+    
+    Parameters
+    ----------
+    xlims : (float, float)
+        2-tuple giving inclusive lower and upper boundaries of abscissa.
+
+    y : `numpy.ndarray` (1-d)
+        Ordinate values to interpolate through.
+
+    bcs : str or tuple
+        One of:
+
+        - ``'notaknot'``: The "not a knot" condition: the third derivative is
+          enforced to be continuous at the first interior knot point.
+        - ``'natural'``: set second derivative to zero at boundary.
+        - ``'flat'``: set first derivative to zero at boundary.
+        - ``('deriv1', value)``: set first derivative to ``value`` at boundary.
+        - ``('deriv2', value)``: set second derivative to ``value`` at
+          boundary.
+
+        Can also be a 2-tuple of the above values specifying the left and
+        right boundary conditions separately.
+
+    extend : str or float or tuple
+        Controls what happens when a value outside the spline domain is
+        passed.
+
+        - ``'extrapolate'`` Extrapolate past the last knot.
+        - ``'constant'`` Return the value at the outermost knot.
+        - ``'raise'`` Raise a ``bspline.DomainError``.
+        - numeric value: return this value.
+
+        Can also be a 2-tuple of the above values specifying the left and
+        right behavior separately.
+
+
+    Examples
+    --------
+    
+    ::
+
+        USpline1D((xmin, xmax), y)
+
+    See Also
+    --------
+    Spline1D
+
+    """
+
+    cdef bs_uspline1d *ptr   # pointer to c struct
+    
+    def __cinit__(self, xlims, y, bcs='notaknot', extend='constant'):
+
+        cdef bs_bcs parsed_bcs
+        cdef bs_exts parsed_exts
+        cdef bs_errorcode code
+        
+        xmin, xmax = xlims
+        
+        # convert to double array if needed
+        cdef double[:] y_ = np.asarray(y, dtype=np.float64)
+
+        # require 1-d arrays
+        if (y_.ndim != 1):
+            raise ValueError("y must be 1-d")
+
+        # parse boundary conditions
+        if not try_parse_boundary_conditions(bcs, &parsed_bcs):
+            raise ValueError("unrecognized boundary condition(s): "+repr(bcs))
+
+        # parse exterior behavior
+        if not try_parse_extends(extend, &parsed_exts):
+            raise ValueError("unrecognized extend: "+repr(extend))
+
+        code = bs_uspline1d_create(bs_range(xmin, xmax), to_bs_array(y_),
+                                   parsed_bcs, parsed_exts, &self.ptr)
+        assert_ok(code)
+
+
+    #def __init__(self, np.ndarray x, np.ndarray y):
+    #    pass
+
+
+    def __dealloc__(self):
+        bs_uspline1d_free(self.ptr)
+
+    def __call__(self, double[:] x):
+        
+        cdef bs_errorcode code
+        
+        out = np.empty(len(x), dtype=np.float64)
+        cdef double[:] outview = out
+
+        code = bs_uspline1d_eval(self.ptr, to_bs_array(x),
+                                 to_bs_array(outview))
+        assert_ok(code)
+
+        return out
+
+    def coefficients(self):
+        """Return the spline coefficients as a copy"""
+        cdef double[:] view = <double[:(self.ptr.n+2)]>(self.ptr.coeffs)
+        return np.array(view)  # copy

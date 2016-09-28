@@ -78,15 +78,18 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
 bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out);
 void         bs_spline1d_free(bs_spline1d *spline);
 
-#endif
 
 typedef struct {
-    double xmin;
-    double xmax;
+    bs_range x;
+    double didx;
     double *coeffs;
     int n;
     bs_exts exts;
 } bs_uspline1d;
 
 bs_errorcode bs_uspline1d_create(bs_range x, bs_array y,
-                                 bs_bcs bcs, bs_exts exts, bs_spline1d **out);
+                                 bs_bcs bcs, bs_exts exts, bs_uspline1d **out);
+bs_errorcode bs_uspline1d_eval(bs_uspline1d *spline, bs_array x, bs_array out);
+void         bs_uspline1d_free(bs_uspline1d *spline);
+
+#endif

@@ -3,7 +3,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from bsplines import Spline1D, DomainError
+from bsplines import Spline1D, USpline1D, DomainError
 
 def test_spline1d_notaknot():
     x = np.array([-1., -0.5, 0.5, 2.2, 3.8, 4.])
@@ -16,6 +16,20 @@ def test_spline1d_notaknot():
     ytest = spline(xtest)
 
     assert_allclose(ytest, ytest_true, atol=1e-14)
+
+def test_uspline1d_notaknot():
+    x = np.array([-1., 0., 1., 2., 3., 4.])+0.1
+    y = x**3
+
+    spline = USpline1D((x[0], x[-1]), y,
+                       bcs='notaknot')
+    spline2 = Spline1D(x, y, bcs='notaknot')
+    print(spline2.coefficients)
+
+    xp = np.linspace(-1., 4., 101)
+    yp = xp**3
+
+    assert_allclose(spline(xp), yp, atol=1e-14)
 
 
 def test_spline1d_cubic():
@@ -39,7 +53,7 @@ def test_spline1d_cubic():
 
 
 def test_1d_input_errors():
-    """Test the some errors we expect to be raised will be."""
+    """Test some errors in spline construction"""
 
     # raise an error about not monotonically increasing x array
     x = [1., 0.999, 3., 4., 5.]
@@ -49,7 +63,7 @@ def test_1d_input_errors():
     assert 'monotonic' in excinfo.value.args[0]
 
 
-def test_1d_domain_error():
+def test_1d_extrapolation():
     """Test that raising a domain error works."""
 
     x = [1., 2., 3., 4., 5.]
