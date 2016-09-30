@@ -18,14 +18,10 @@ def test_spline1d_notaknot():
     assert_allclose(ytest, ytest_true, atol=1e-14)
 
 def test_uspline1d_notaknot():
-    x = np.array([-1., 0., 1., 2., 3., 4.])+0.1
+    x = np.array([-1., 0., 1., 2., 3., 4.])
     y = x**3
 
-    spline = USpline1D((x[0], x[-1]), y,
-                       bcs='notaknot')
-    spline2 = Spline1D(x, y, bcs='notaknot')
-    print(spline2.coefficients)
-
+    spline = USpline1D((x[0], x[-1]), y, bcs='notaknot')
     xp = np.linspace(-1., 4., 101)
     yp = xp**3
 

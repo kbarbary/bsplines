@@ -1,5 +1,5 @@
 """Fast cubic basis splines in Python"""
-from libc.stdio cimport sprintf
+from libc.math cimport fabs
 import numpy as np
 cimport numpy as np
 
@@ -188,6 +188,16 @@ cdef int try_parse_extends(pyextends, bs_exts *parsed_exts):
      return 0
 
 
+cdef int is_uniform(double[:] x):
+    cdef int i
+    cdef double dx = x[1] - x[0]
+    cdef int ok = 1
+
+    for i in range(2, len(x)):
+        ok &= (fabs((x[i] - x[i-1]) - dx) < 1e-9 * dx)
+
+    return ok
+
 # -----------------------------------------------------------------------------
 # 1-d splines
 
@@ -309,13 +319,13 @@ cdef class Spline1D:
 
 cdef class USpline1D:
     """
-    USpline1D(xlims, y, bcs='notaknot', extend='constant')
+    USpline1D(x, y, bcs='notaknot', extend='constant')
 
     One dimensional cubic basis spline with uniform grid spacing.
     
     Parameters
     ----------
-    xlims : (float, float)
+    x : (float, float)
         2-tuple giving inclusive lower and upper boundaries of abscissa.
 
     y : `numpy.ndarray` (1-d)
@@ -363,20 +373,32 @@ cdef class USpline1D:
 
     cdef bs_uspline1d *ptr   # pointer to c struct
     
-    def __cinit__(self, xlims, y, bcs='notaknot', extend='constant'):
+    def __cinit__(self, x, y, bcs='notaknot', extend='constant'):
 
         cdef bs_bcs parsed_bcs
         cdef bs_exts parsed_exts
         cdef bs_errorcode code
-        
-        xmin, xmax = xlims
-        
-        # convert to double array if needed
-        cdef double[:] y_ = np.asarray(y, dtype=np.float64)
+        cdef double[:] x_, y_
+        cdef double xmin, xmax
 
-        # require 1-d arrays
+        # convert to double array if needed
+        y_ = np.asarray(y, dtype=np.float64)
         if (y_.ndim != 1):
             raise ValueError("y must be 1-d")
+
+        if len(x) <= 2:
+            xmin, xmax = x
+        else:
+            # check if x is an array with uniform spacing
+            x_ = np.asarray(x, dtype=np.float64)
+            if x_.ndim != 1:
+                raise ValueError("x must be 1-d")
+            if not is_uniform(x_):
+                raise ValueError("x does not have uniform spacing")
+            if not (len(x_) == len(y_)):
+                raise ValueError("x is array-like but x and y have different "
+                                 "lengths")
+            xmin, xmax = x_[0], x_[-1]
 
         # parse boundary conditions
         if not try_parse_boundary_conditions(bcs, &parsed_bcs):

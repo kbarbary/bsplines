@@ -3,6 +3,24 @@
 #include <bs.h>
 
 #include <stdio.h> //debug
+
+//debug
+void print_a_and_b(double first[5], double last[5],
+                   double *A, double  *b, int M)
+{
+    printf("\nfirst: [ %f  %f  %f  %f  %f ]\n",
+           first[0], first[1], first[2], first[3], first[4]);
+
+    for (int i=0; i<M; i++)
+        printf("row %d : | %f  %f  %f |    | %f |\n",
+               i, A[3*i+0], A[3*i+1], A[3*i+2], b[i]);
+
+    printf("last: [ %f  %f  %f  %f  %f ]\n",
+           last[0], last[1], last[2], last[3], last[4]);
+
+}
+
+
 //-----------------------------------------------------------------------------
 // search functions
 //
@@ -123,7 +141,7 @@ static void db3nonzeros(double x, int i, double* restrict t,
 
 // second derivatives
 static void d2b3nonzeros(double x, int i, double* restrict t,
-                        double* restrict consts, double out[4])
+                         double* restrict consts, double out[4])
 {
     double* restrict c = consts + 4*i;
 
@@ -230,94 +248,6 @@ static double* alloc_constants(double *knots, int n) {
     return constants;
 }
 
-//-----------------------------------------------------------------------------
-// not-a-knot boundary condition preprocessing
-//
-// We want to solve a matrix like this:
-//
-// | x x x x x          |
-// | x x x              |
-// |   x x x            |
-// |     x x x          |
-// |        ...         |
-// |          x x x     |
-// |            x x x   |
-// |              x x x |
-// |          x x x x x |
-//
-// So we'll eliminate the trailing two elements in the first row
-// and/or the leading two elements in the last row. Then we can feed it to
-// the standard solve().
-
-// fill `row` with the five nonzero elements for applying the boundary
-// condition at knot `i` (either i=1 or i=N-2).
-static void notaknot_row(bs_spline1d *spline, int i, double row[5])
-{
-    double buf[4];
-
-    d3b3nonzeros(i-1, spline->consts, row);
-    d3b3nonzeros(i, spline->consts, buf);
-    row[4] = 0.0;
-    for (int i=0; i<4; i++) {
-        row[i+1] -= buf[i];
-    }
-}
-
-static void fill_left_notaknot_condition(const double firstrow[5], double *A,
-                                         double *b)
-{
-    // copy input row so we don't modify row
-    double row[5];
-    for (int i=0; i<5; i++) row[i] = firstrow[i];
-    
-    // RHS value is initially zero
-    b[0] = 0.0;
-
-    // eliminate last element in row by subtracting 4th row scaled.
-    double t = row[4] / A[3*3+2];
-    row[2] -= A[3*3+0] * t;
-    row[3] -= A[3*3+1] * t;
-    // row[4] -= A[3*3+2] * t; // sets to zero by construction
-    b[0] -= b[3] * t;
-
-    // eliminate second to last element by subtracting 3rd row scaled.
-    t = row[3] / A[3*2+2];
-    row[1] -= A[3*2+0] * t;
-    row[2] -= A[3*2+1] * t;
-    // row[3] -= A[3*2+2] * t; // sets to zero by construction
-    b[0] -= b[2] * t;
-
-    // store results into first row of A;
-    for (int i=0; i<3; i++) A[i] = row[i];
-}
-
-static void fill_right_notaknot_condition(const double lastrow[5], double *A,
-                                          double *b, int M)
-{
-    // copy input row so we don't modify row
-    double row[5];
-    for (int i=0; i<5; i++) row[i] = lastrow[i];
-
-    // RHS value is initially zero
-    b[M-1] = 0.0;
-
-    // eliminate first element in row by subtracting (M-4)th row scaled.
-    double t = row[0] / A[3*(M-4)+0];
-    // row[0] -= A[3*(M-4)+0] * t;  // sets to zero by construction
-    row[1] -= A[3*(M-4)+1] * t;
-    row[2] -= A[3*(M-4)+2] * t;
-    b[M-1] -= b[M-4] * t;
-
-    // eliminate second element by subtracting (M-3)th row scaled.
-    t = row[1] / A[3*(M-3)+0];
-    // row[1] -= A[3*(M-3)+0] * t;  // sets to zero by construction
-    row[2] -= A[3*(M-3)+1] * t;
-    row[3] -= A[3*(M-3)+2] * t;
-    b[M-1] -= b[M-3] * t;
-
-    // store results into first row of A;
-    for (int i=0; i<3; i++) A[3*(M-1)+i] = row[i+2];
-}
 
 //-----------------------------------------------------------------------------
 // solve()
@@ -334,18 +264,19 @@ static void fill_right_notaknot_condition(const double lastrow[5], double *A,
 // |              x x x |
 // |              x x x |
 //
-// Only the non-zero elements on each row are stored, so A has 3n elements.
-// Rows are contiguous.
+// Rows are contiguous in memory: e.g., A[0] through A[2]
+// stores the second row (first row with three elements).
+//
 //-----------------------------------------------------------------------------
 
 static void solve(double* restrict A, double* restrict b, int n)
 {
-  // divide 0th row by upper left element
+  // divide first row by upper left element
   double t = A[0];
   b[0] /= t;
   A[2] /= t;  
   A[1] /= t;
-  // A[0] = 1.0; but not used again.
+  A[0] = 1.0; // but not used again.
 
   // subtract (first element of row 1) x (row 0) from row 1
   // to eliminate first element of row 1.
@@ -353,13 +284,13 @@ static void solve(double* restrict A, double* restrict b, int n)
   b[1]     -= t * b[0];
   A[3*1+2] -= t * A[2];
   A[3*1+1] -= t * A[1];
-  // A[3*1+0] = 0.0; but not used again.
+  A[3*1+0] = 0.0; // but not used again.
   
   // divide row 1 by first nonzero element, to set it to 1.
   t = A[3*1+1];
   b[1]     /= t;
   A[3*1+2] /= t;
-  // A[3*1+1] = 1.0; but not used again.
+  A[3*1+1] = 1.0; // but not used again.
 
   for (int i=2; i<n-1; i++) {
 
@@ -369,13 +300,13 @@ static void solve(double* restrict A, double* restrict b, int n)
     b[i]        -= t * b[i-1];
     // A[3*i+2] -= t * 0.0  // no-op b/c previous row is zero.
     A[3*i+1]    -= t * A[3*(i-1)+2];
-    // A[3*i+0] -= t * 1.0;  // (previous row is 1.0) but not used again.
+    A[3*i+0] = 0.0;  // (previous row is 1.0) but not used again.
 
     // divide new row by first non-zero element
     t = A[3*i+1];
     b[i]     /= t;
     A[3*i+2] /= t;
-    // A[3*i+1] = 1.0;
+    A[3*i+1] = 1.0;
   }
 
   // last row is different:
@@ -403,6 +334,189 @@ static void solve(double* restrict A, double* restrict b, int n)
   b[0] -= b[1] * A[1] + b[2] * A[2];
 }
 
+
+//-----------------------------------------------------------------------------
+// solve2()
+//
+// Solve A * x = b for x. The solution is stored in b.
+//
+// A is a matrix like this:
+//
+// | x x x x x          |
+// | x x x              |
+// |   x x x            |
+// |        ...         |
+// |          x x x     |
+// |            x x x   |
+// |              x x x |
+// |          x x x x x |
+//
+// A is stored compactly in 3*n elements, with row i corresponding to A[3*i],
+// with the exception of the first and last rows which are passed in
+// separately because they are too large to be stored this way.
+//
+// Note that the first 3 and last 3 elements of A are initially empty as
+// these row values are stored in `first` and `last`. In fact the last 3
+// elements of A are not used at all.
+//
+//-----------------------------------------------------------------------------
+
+static void solve2(double first[restrict 5], double last[restrict 5],
+                   double* restrict A, double* restrict b, int n)
+{
+    // rows 1, 2, 3: divide by first non-zero
+    //
+    // x x x x x | y       x x x x x | y
+    // x x x     | y       1 x x     | y
+    //   x x x   | y  -->    1 x x   | y
+    //     x x x | y           1 x x | y
+    
+    for (int i=1; i<4; i++) {
+        b[i]     /= A[3*i];
+        A[3*i+2] /= A[3*i];
+        A[3*i+1] /= A[3*i];
+        A[3*i]   = 1.0;
+    }
+
+    // eliminate first two elements of first row and divide by first non-zero.
+    //
+    // x x x x x | y       0 0 1 x x | y
+    // 1 x x     | y       1 x x     | y
+    //   1 x x   | y  -->    1 x x   | y
+    //     1 x x | y           1 x x | y
+    b[0]     -= first[0] * b[1];
+    first[2] -= first[0] * A[3*1+2];
+    first[1] -= first[0] * A[3*1+1];
+    first[0] = 0.0;
+
+    b[0]     -= first[1] * b[2];
+    first[3] -= first[1] * A[3*2+2];
+    first[2] -= first[1] * A[3*2+1];
+    first[1] = 0.0;
+
+    b[0]     /= first[2];
+    first[4] /= first[2];
+    first[3] /= first[2];
+    first[2] = 1.0;
+
+    // reduce row 3
+    //
+    // 0 0 1 x x | y       0 0 1 x x | y
+    // 1 x x     | y       1 x x     | y
+    //   1 x x   | y  -->    1 x x   | y
+    //     1 x x | y           0 1 x | y   
+    b[3]     -= A[3*3+0] * b[0];
+    A[3*3+2] -= A[3*3+0] * first[4];
+    A[3*3+1] -= A[3*3+0] * first[3];
+    A[3*3+0] = 0.0;
+
+    b[3]     /= A[3*3+1];
+    A[3*3+2] /= A[3*3+1];
+    A[3*3+1] = 1.0;
+
+    // permute first three rows:
+    // 0 0 1 x x | y       1 x x     | y
+    // 1 x x     | y         1 x x   | y
+    //   1 x x   | y  -->      1 x x | y
+    //     0 1 x | y           0 1 x | y
+    double tmp = b[0];
+    b[0] = b[1];
+    A[3*0+0] = A[3*1+0];
+    A[3*0+1] = A[3*1+1];
+    A[3*0+2] = A[3*1+2];
+
+    b[1] = b[2];
+    A[3*1+0] = A[3*2+0];
+    A[3*1+1] = A[3*2+1];
+    A[3*1+2] = A[3*2+2];
+
+    b[2] = tmp;
+    A[3*2+0] = first[2];
+    A[3*2+1] = first[3];
+    A[3*2+2] = first[4];
+    
+    // reduce rest of the middle rows
+    for (int i=4; i<n-1; i++) {
+        b[i]     -= A[3*i+0] * b[i-1];
+        A[3*i+1] -= A[3*i+0] * A[3*(i-1)+2];
+        A[3*i+0] = 0.0;
+
+        b[i]     /= A[3*i+1];
+        A[3*i+2] /= A[3*i+1];
+        A[3*i+1] = 1.0;
+    }
+
+    // we now have, e.g.,
+    // 1 x x         | y
+    //   1 x x       | y
+    //     1 x x     | y  (n-5)
+    //     0 1 x     | y  (n-4)
+    //       0 1 x   | y  (n-3)
+    //         0 1 x | y  (n-2)
+    //     x x x x x | y  (n-1)
+
+    // eliminate first element of last row using the (n-5)th row.
+    b[n-1] -= last[0] * b[n-5];
+    if (n-5 < 3) {
+        last[2] -= last[0] * A[3*(n-5)+2];
+        last[1] -= last[0] * A[3*(n-5)+1];
+    }
+    else {
+        last[1] -= last[0] * A[3*(n-5)+2];
+    }
+    last[0] = 0.0;
+
+    // eliminate second element of last row using the (n-4)th row.
+    b[n-1] -= last[1] * b[n-4];
+    if (n-4 < 3) {
+        last[3] -= last[1] * A[3*(n-4)+2];
+        last[2] -= last[1] * A[3*(n-4)+1];
+    }
+    else {
+        last[2] -= last[1] * A[3*(n-4)+2];
+    }
+    last[1] = 0.0;
+
+    // eliminate third element of last row using the (n-3)rd row.
+    b[n-1] -= last[2] * b[n-3];
+    if (n-3 < 3) {
+        last[4] -= last[2] * A[3*(n-3)+2];
+        last[3] -= last[2] * A[3*(n-3)+1];
+    }
+    else {
+        last[3] -= last[2] * A[3*(n-3)+2];
+    }
+    last[2] = 0.0;
+
+    // eliminate forth element
+    b[n-1] -= last[3] * b[n-2];
+    last[4] -= last[3] * A[3*(n-2)+2];
+    last[3] = 0.0;
+
+    // normalize last row
+    b[n-1] /= last[4];
+    last[4] = 1.0;
+
+    // back-substitute
+    for (int i=n-2; i>=3; i--) {
+        b[i] -= b[i+1] * A[3*i+2];
+    }
+
+    // we now have:
+    // 1 x x           | y
+    //   1 x x         | y
+    //     1 x x       | y
+    //       1         | y
+    //         1       | y
+    //          ...
+    //
+    // eliminate the remaining elements.
+    b[2] -= b[3] * A[3*2+1] + b[4] * A[3*2+2];
+    b[1] -= b[2] * A[3*1+1] + b[3] * A[3*1+2];
+    b[0] -= b[1] * A[3*0+1] + b[2] * A[3*0+2];
+}
+
+
 //-----------------------------------------------------------------------------
 // bs_array
 //-----------------------------------------------------------------------------
@@ -416,23 +530,29 @@ static int is_monotonic(bs_array x)
   return ok;
 }
 
-//debug
-void print_a_and_b(double *A, double  *b, int M)
-{
-    printf("\n");
-    for (int i=0; i<M; i++)
-        printf("| %f  %f  %f |    | %f |\n",
-               A[3*i+0], A[3*i+1], A[3*i+2], b[i]);
-}
 
 //-----------------------------------------------------------------------------
 // spline1d
 //-----------------------------------------------------------------------------
+
+
+static void notaknot_row(bs_spline1d *spline, int i, double row[5])
+{
+    double buf[4];
+
+    d3b3nonzeros(i-1, spline->consts, row);
+    d3b3nonzeros(i, spline->consts, buf);
+    row[4] = 0.0;
+    for (int i=0; i<4; i++) {
+        row[i+1] -= buf[i];
+    }
+}
+
+
 bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
                                 bs_exts exts, bs_spline1d **out)
 {
-  // Initialize output pointer, in case we error out.
-  *out = NULL;
+    *out = NULL;  // In case of error, ensure that output pointer is NULL.
   
   // checks
   if (x.length != y.length) return BS_LENGTHMISMATCH;
@@ -457,7 +577,9 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
       spline->exts.right.type = BS_VALUE;
       spline->exts.right.value = y.data[(N-1)*y.stride];
   }
-  
+
+  double first[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+  double last[6]  = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   double *A = malloc(3 * M * sizeof(double));  // sparse row representation
   double *b = malloc(M * sizeof(double));
 
@@ -468,46 +590,40 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
       b[i+1] = y.data[i * y.stride];
   }
 
-  double buf[5];
-
   // Left boundary condition
   switch (bcs.left.type) {
   case BS_DERIV1:
-      db3nonzeros(spline->knots[0], 0, spline->knots, spline->consts, buf);
-      for (int i=0; i<3; i++) A[i] = buf[i];
+      db3nonzeros(spline->knots[0], 0, spline->knots, spline->consts, first);
       b[0] = bcs.left.value;
       break;
   case BS_DERIV2:
-      d2b3nonzeros(spline->knots[0], 0, spline->knots, spline->consts, buf);
-      for (int i=0; i<3; i++) A[i] = buf[i];
+      d2b3nonzeros(spline->knots[0], 0, spline->knots, spline->consts, first);
       b[0] = bcs.left.value;
       break;
   case BS_NOTAKNOT:
-      notaknot_row(spline, 1, buf);
-      fill_left_notaknot_condition(buf, A, b);
+      notaknot_row(spline, 1, first);
+      b[0] = 0.0;
   }
 
   // Right boundary condition
   switch (bcs.right.type) {
   case BS_DERIV1:
-      db3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->consts, buf);
-      for (int i=0; i<3; i++) A[3*(M-1)+i] = buf[i];
+      db3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->consts,
+                  last+2);
       b[M-1] = bcs.right.value;
       break;
   case BS_DERIV2:
-      d2b3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->consts, buf);
-      for (int i=0; i<3; i++) A[3*(M-1)+i] = buf[i];
+      d2b3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->consts,
+                   last+2);
       b[M-1] = bcs.right.value;
       break;
   case BS_NOTAKNOT:
-      notaknot_row(spline, N-2, buf);
-      fill_right_notaknot_condition(buf, A, b, M);
+      notaknot_row(spline, N-2, last);
+      b[M-1] = 0.0;
   }
-  
-  // Solve
-  print_a_and_b(A, b, M);
-  solve(A, b, M);
-  print_a_and_b(A, b, M);
+
+
+  solve2(first, last, A, b, M);
   free(A);
   spline->coeffs = b;
 
@@ -716,6 +832,8 @@ bs_errorcode bs_uspline1d_create(bs_range x, bs_array y, bs_bcs bcs,
         spline->exts.right.value = y.data[(N-1)*y.stride];
     }
 
+    double first[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+    double last[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
     double *A = malloc(3 * M * sizeof(double));  // sparse row representation
     double *b = malloc(M * sizeof(double));
 
@@ -728,35 +846,35 @@ bs_errorcode bs_uspline1d_create(bs_range x, bs_array y, bs_bcs bcs,
   // Left boundary condition
   switch (bcs.left.type) {
   case BS_DERIV1:
-      for (int i=0; i<3; i++) A[i] = db3vals[i];
+      for (int i=0; i<3; i++) first[i] = db3vals[i];
       b[0] = bcs.left.value;
       break;
   case BS_DERIV2:
-      for (int i=0; i<3; i++) A[i] = d2b3vals[i];
+      for (int i=0; i<3; i++) first[i] = d2b3vals[i];
       b[0] = bcs.left.value;
       break;
   case BS_NOTAKNOT:
-      fill_left_notaknot_condition(notaknot_row, A, b);
+      for (int i=0; i<5; i++) first[i] = notaknot_row[i];
+      b[0] = 0.0;
   }
 
   // Right boundary condition
   switch (bcs.right.type) {
   case BS_DERIV1:
-      for (int i=0; i<3; i++) A[3*(M-1)+i] = db3vals[i];
+      for (int i=0; i<3; i++) last[i+2] = db3vals[i];
       b[M-1] = bcs.right.value;
       break;
   case BS_DERIV2:
-      for (int i=0; i<3; i++) A[3*(M-1)+i] = d2b3vals[i];
+      for (int i=0; i<3; i++) last[i+2] = d2b3vals[i];
       b[M-1] = bcs.right.value;
       break;
   case BS_NOTAKNOT:
-      fill_right_notaknot_condition(notaknot_row, A, b, M);
+      for (int i=0; i<5; i++) last[i] = notaknot_row[i];
+      b[M-1] = 0.0;
   }
 
-  print_a_and_b(A, b, M);
-  solve(A, b, M);
-  print_a_and_b(A, b, M);
 
+  solve2(first, last, A, b, M);
   free(A);
   spline->coeffs = b;
 
