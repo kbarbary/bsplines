@@ -8,7 +8,7 @@ import json
 import numpy as np
 from scipy.interpolate import InterpolatedUnivariateSpline
 
-from bsplines import Spline1D
+from bsplines import Spline1D, USpline1D
 
 
 # -----------------------------------------------------------------------------
@@ -112,6 +112,7 @@ if __name__ == "__main__":
 
 
     results = OrderedDict([
+        ('bsplines.USpline1D', benchmark_eval_1d(USpline1D, {})),
         ('bsplines.Spline1D', benchmark_eval_1d(Spline1D, {})),
         ('SciPy UnivariateSpline',
          benchmark_eval_1d(InterpolatedUnivariateSpline, {'ext': 3, 'k': 3}))
