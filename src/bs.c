@@ -83,7 +83,7 @@ static int find_index_binary(double *values, int n, double x)
 //-----------------------------------------------------------------------------
 
 static void b3nonzeros(double x, int i, double* restrict t,
-                       double* restrict consts, double out[4])
+                       double* restrict consts, double out[restrict 4])
 {
     double* restrict c = consts + 4*i;
 
@@ -193,7 +193,7 @@ static void d3b3nonzeros(int i, double* restrict consts, double out[4])
 // end of array).
 static double* alloc_knots(bs_array x)
 {
-  int N = x.length;
+  int N = x.size;
   double *knots = malloc((N + 5) * sizeof(double));
 
   // move pointer past initial two-element padding.
@@ -250,7 +250,7 @@ static double* alloc_constants(double *knots, int n) {
 
 
 //-----------------------------------------------------------------------------
-// solve()
+// solve_simple()
 //
 // Solve A * x = b for x. The solution is stored in b.
 //
@@ -269,7 +269,7 @@ static double* alloc_constants(double *knots, int n) {
 //
 //-----------------------------------------------------------------------------
 
-static void solve(double* restrict A, double* restrict b, int n)
+static void solve_simple(double* restrict A, double* restrict b, int n)
 {
   // divide first row by upper left element
   double t = A[0];
@@ -336,7 +336,7 @@ static void solve(double* restrict A, double* restrict b, int n)
 
 
 //-----------------------------------------------------------------------------
-// solve2()
+// solve()
 //
 // Solve A * x = b for x. The solution is stored in b.
 //
@@ -361,7 +361,7 @@ static void solve(double* restrict A, double* restrict b, int n)
 //
 //-----------------------------------------------------------------------------
 
-static void solve2(double first[restrict 5], double last[restrict 5],
+static void solve(double first[restrict 5], double last[restrict 5],
                    double* restrict A, double* restrict b, int n)
 {
     // rows 1, 2, 3: divide by first non-zero
@@ -524,7 +524,7 @@ static void solve2(double first[restrict 5], double last[restrict 5],
 static int is_monotonic(bs_array x)
 {
   int ok = 1;
-  for (int i=1; i<x.length; i++) {
+  for (int i=1; i<x.size; i++) {
     ok &= (x.data[i*x.stride] >= x.data[(i-1)*x.stride]);
   }
   return ok;
@@ -536,16 +536,79 @@ static int is_monotonic(bs_array x)
 //-----------------------------------------------------------------------------
 
 
-static void notaknot_row(bs_spline1d *spline, int i, double row[5])
+static void notaknot_row(double *consts, int i, double row[5])
 {
     double buf[4];
 
-    d3b3nonzeros(i-1, spline->consts, row);
-    d3b3nonzeros(i, spline->consts, buf);
+    d3b3nonzeros(i-1, consts, row);
+    d3b3nonzeros(i, consts, buf);
     row[4] = 0.0;
     for (int i=0; i<4; i++) {
         row[i+1] -= buf[i];
     }
+}
+
+// TODO: function to just fill A, so we can do it just once in each
+// dimension for spline2d? Problem is:
+// - we'd have to also pass around first, last
+// - b would be different each time so we'd hae to fill it each time
+//   separately, including for boundary conditions.
+
+// Find spline coefficients along one dimension.
+// knots and consts are as belong to a spline.
+// coeffs is size values.size + 2 with stride cstride.
+// A is a buffer with size 3*(values.size + 2)
+static void find_1d_coefficients(double* restrict knots,
+                                 double* restrict consts,
+                                 bs_array values, bs_bcs bcs,
+                                 double* restrict A,
+                                 double* restrict coeffs)
+{
+    double first[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+    double last[6]  = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    int N = values.size;
+    int M = N+2;
+    
+    // fill rows 1 through M-1 with values of b_{i-3}, b_{i-2}, b{i-1}
+    // at knot i.
+    for (int i=0; i<N; i++) {
+        b3nonzeros(knots[i], i, knots, consts, A + 3*(i+1));
+        coeffs[i+1] = values.data[i * values.stride];
+    }
+
+    // Left boundary condition
+    switch (bcs.left.type) {
+    case BS_DERIV1:
+        db3nonzeros(knots[0], 0, knots, consts, first);
+        coeffs[0] = bcs.left.value;
+        break;
+    case BS_DERIV2:
+        d2b3nonzeros(knots[0], 0, knots, consts, first);
+        coeffs[0] = bcs.left.value;
+        break;
+    case BS_NOTAKNOT:
+        notaknot_row(consts, 1, first);
+        coeffs[0] = 0.0;
+    }
+
+    // Right boundary condition
+    switch (bcs.right.type) {
+    case BS_DERIV1:
+        db3nonzeros(knots[N-1], N-1, knots, consts,
+                    last+2);
+        coeffs[M-1] = bcs.right.value;
+        break;
+    case BS_DERIV2:
+        d2b3nonzeros(knots[N-1], N-1, knots, consts,
+                     last+2);
+        coeffs[M-1] = bcs.right.value;
+        break;
+    case BS_NOTAKNOT:
+        notaknot_row(consts, N-2, last);
+        coeffs[M-1] = 0.0;
+    }
+
+    solve(first, last, A, coeffs, M);
 }
 
 
@@ -555,12 +618,12 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
     *out = NULL;  // In case of error, ensure that output pointer is NULL.
   
   // checks
-  if (x.length != y.length) return BS_LENGTHMISMATCH;
+  if (x.size != y.size) return BS_SIZEMISMATCH;
   if (!is_monotonic(x)) return BS_NOTMONOTONIC;
 
   bs_spline1d* spline = malloc(sizeof(bs_spline1d));
   
-  int N = x.length;
+  int N = x.size;
   int M = N + 2;
   
   spline->knots = alloc_knots(x);
@@ -578,56 +641,15 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
       spline->exts.right.value = y.data[(N-1)*y.stride];
   }
 
-  double first[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
-  double last[6]  = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   double *A = malloc(3 * M * sizeof(double));  // sparse row representation
-  double *b = malloc(M * sizeof(double));
+  double *coeffs = malloc(M * sizeof(double)); 
 
-  // fill rows 1 through M-1 with values of b_{i-3}, b_{i-2}, b{i-1} at knot i.
-  for (int i=0; i<N; i++) {
-      b3nonzeros(spline->knots[i], i, spline->knots, spline->consts,
-                 A + 3*(i+1));
-      b[i+1] = y.data[i * y.stride];
-  }
-
-  // Left boundary condition
-  switch (bcs.left.type) {
-  case BS_DERIV1:
-      db3nonzeros(spline->knots[0], 0, spline->knots, spline->consts, first);
-      b[0] = bcs.left.value;
-      break;
-  case BS_DERIV2:
-      d2b3nonzeros(spline->knots[0], 0, spline->knots, spline->consts, first);
-      b[0] = bcs.left.value;
-      break;
-  case BS_NOTAKNOT:
-      notaknot_row(spline, 1, first);
-      b[0] = 0.0;
-  }
-
-  // Right boundary condition
-  switch (bcs.right.type) {
-  case BS_DERIV1:
-      db3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->consts,
-                  last+2);
-      b[M-1] = bcs.right.value;
-      break;
-  case BS_DERIV2:
-      d2b3nonzeros(spline->knots[N-1], N-1, spline->knots, spline->consts,
-                   last+2);
-      b[M-1] = bcs.right.value;
-      break;
-  case BS_NOTAKNOT:
-      notaknot_row(spline, N-2, last);
-      b[M-1] = 0.0;
-  }
-
-
-  solve2(first, last, A, b, M);
+  find_1d_coefficients(spline->knots, spline->consts, y, bcs, A, coeffs);
   free(A);
-  spline->coeffs = b;
 
+  spline->coeffs = coeffs;
   *out = spline;
+
   return BS_OK;
 }
 
@@ -653,7 +675,7 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
 
   double xval;
   double b3vals[4];
-  for (int j=0; j<x.length; j++) {
+  for (int j=0; j<x.size; j++) {
     xval = x.data[j*x.stride];
     i = find_index_from(spline->knots, spline->n, xval, i);
 
@@ -692,6 +714,207 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
                               spline->coeffs[i+2] * b3vals[2] +
                               spline->coeffs[i+3] * b3vals[3]);
   }
+
+  return BS_OK;
+}
+
+
+//-----------------------------------------------------------------------------
+// spline2d
+//-----------------------------------------------------------------------------
+
+bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
+                                bs_bcs xbcs, bs_bcs ybcs, bs_exts xexts,
+                                bs_exts yexts, bs_spline2d **out)
+{
+    *out = NULL;  // In case of error, ensure that output pointer is NULL.
+
+    if ((x.size != z.sizes[0]) || (y.size != z.sizes[1]))
+        return BS_SIZEMISMATCH;
+    if (!is_monotonic(x) || !is_monotonic(y))
+        return BS_NOTMONOTONIC;
+
+    bs_spline2d* spline = malloc(sizeof(bs_spline2d));
+  
+    int nx = x.size;
+    int mx = nx + 2;
+
+    int ny = y.size;
+    int my = ny + 2;
+
+    spline->xknots = alloc_knots(x);
+    spline->xconsts = alloc_constants(spline->xknots, nx);
+    spline->nx = nx;
+    spline->xexts = xexts;
+
+    spline->yknots = alloc_knots(y);
+    spline->yconsts = alloc_constants(spline->yknots, ny);
+    spline->ny = ny;
+    spline->yexts = yexts;
+
+    double* coeffs = malloc(mx * my * sizeof(double));
+    
+    // find coefficients along y (fast axis)
+    double *A = malloc(3 * my * sizeof(double));
+    for (int i=0; i<nx; i++) {
+        bs_array zslice = {z.data + z.strides[1]*i, z.sizes[0], z.strides[0]};
+        find_1d_coefficients(spline->yknots, spline->yconsts, zslice,
+                             ybcs, A, coeffs+(i*my));
+    }
+    free(A);
+
+    // find coefficients along x (slow axis);
+    A = malloc(3 * mx * sizeof(double));
+    double *buf = malloc(mx * sizeof(double));
+    for (int i=0; i<my; i++) {
+        // for this slice in constant y, the target values are the
+        // `nx` coefficients we just found. They are strided in
+        // `coeffs` by `my`.
+        bs_array coeffs_slice = {coeffs + i, nx, my};
+        find_1d_coefficients(spline->yknots, spline->yconsts, coeffs_slice,
+                             ybcs, A, buf);
+        
+        // the results in `buf` are contiguous in x, but we need to
+        // copy them back into the coefficients array strided.
+        for (int j=0; j<mx; j++) coeffs[i+my*j] = buf[j];
+    }
+    free(A);
+    free(buf);
+
+    spline->coeffs = coeffs;
+    *out = spline;
+
+    return BS_OK;
+}
+
+void bs_spline2d_free(bs_spline2d* spline)
+{
+  if (spline != NULL) {
+    free_knots(spline->xknots);
+    free(spline->xconsts);
+    free_knots(spline->yknots);
+    free(spline->yconsts);
+    free(spline->coeffs);
+    free(spline);
+  }
+}
+
+bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y,
+                              bs_array2d out)
+{
+    // ensure inputs are increasing.
+    if (!is_monotonic(x)) return BS_NOTMONOTONIC;
+    if (!is_monotonic(y)) return BS_NOTMONOTONIC;
+  
+    // for first index, it could be anywhere, so use binary search
+    int i = find_index_binary(spline->xknots, spline->nx, x.data[0]);
+    int j0 = find_index_binary(spline->yknots, spline->ny, y.data[0]);
+
+    int my = spline->ny + 2; // for indexing coeffs.
+    double xb3vals[4];
+    double yb3vals[4];
+    for (int k=0; k<x.size; k++) {
+        double xval = x.data[k*x.stride];
+        i = find_index_from(spline->xknots, spline->nx, xval, i);
+
+        // index outside left boundary
+        if (i == -1) {
+            switch (spline->xexts.left.type) {
+            case BS_EXTRAPOLATE:
+                i = 0;
+                break;
+            case BS_VALUE:
+                for (int l=0; l<y.size; l++) {
+                    out.data[k * out.strides[0] + l * out.strides[1]] =
+                        spline->xexts.left.value;
+                }
+                continue;
+            case BS_RAISE:
+                return BS_DOMAINERROR;
+            }
+        }
+
+        // index outside right boundary
+        else if (i == spline->nx - 1) {
+            switch (spline->xexts.right.type) {
+            case BS_EXTRAPOLATE:
+                i = spline->nx - 2;
+                break;
+            case BS_VALUE:
+                for (int l=0; l<y.size; l++) {
+                    out.data[k * out.strides[0] + l * out.strides[1]] =
+                        spline->xexts.right.value;
+                }
+                continue;
+            case BS_RAISE:
+                return BS_DOMAINERROR;
+            }
+        }
+
+        // get basis function values for x coordinate
+        b3nonzeros(xval, i, spline->xknots, spline->xconsts, xb3vals);
+
+        // x value is in range (or extrapolating); loop over y values:
+        int j = j0;
+        for (int l=0; l<y.size; l++) {
+            double yval = y.data[l*y.stride];
+            j = find_index_from(spline->yknots, spline->ny, yval, j);
+
+            // index outside left boundary
+            if (j == -1) {
+                switch (spline->yexts.left.type) {
+                case BS_EXTRAPOLATE:
+                    j = 0;
+                    break;
+                case BS_VALUE:
+                    out.data[k * out.strides[0] + l * out.strides[1]] =
+                        spline->yexts.left.value;
+                    continue;
+                case BS_RAISE:
+                    return BS_DOMAINERROR;
+                }
+            }
+
+            // index outside right boundary
+            else if (j == spline->ny - 1) {
+                switch (spline->yexts.right.type) {
+                case BS_EXTRAPOLATE:
+                    j = spline->ny - 2;
+                    break;
+                case BS_VALUE:
+                    out.data[k * out.strides[0] + l * out.strides[1]] =
+                        spline->yexts.right.value;
+                    continue;
+                case BS_RAISE:
+                    return BS_DOMAINERROR;
+                }
+            }
+
+            // get basis function values for y coordinate
+            b3nonzeros(yval, j, spline->yknots, spline->yconsts, yb3vals);
+
+            out.data[k * out.strides[0] + l * out.strides[1]] =
+                (spline->coeffs[(i  )*my+j]   * xb3vals[0] * yb3vals[0] +
+                 spline->coeffs[(i  )*my+j+1] * xb3vals[0] * yb3vals[1] +
+                 spline->coeffs[(i  )*my+j+2] * xb3vals[0] * yb3vals[2] +
+                 spline->coeffs[(i  )*my+j+3] * xb3vals[0] * yb3vals[3] +
+
+                 spline->coeffs[(i+1)*my+j]   * xb3vals[1] * yb3vals[0] +
+                 spline->coeffs[(i+1)*my+j+1] * xb3vals[1] * yb3vals[1] +
+                 spline->coeffs[(i+1)*my+j+2] * xb3vals[1] * yb3vals[2] +
+                 spline->coeffs[(i+1)*my+j+3] * xb3vals[1] * yb3vals[3] +
+                 
+                 spline->coeffs[(i+2)*my+j]   * xb3vals[2] * yb3vals[0] +
+                 spline->coeffs[(i+2)*my+j+1] * xb3vals[2] * yb3vals[1] +
+                 spline->coeffs[(i+2)*my+j+2] * xb3vals[2] * yb3vals[2] +
+                 spline->coeffs[(i+2)*my+j+3] * xb3vals[2] * yb3vals[3] +
+
+                 spline->coeffs[(i+3)*my+j]   * xb3vals[3] * yb3vals[0] +
+                 spline->coeffs[(i+3)*my+j+1] * xb3vals[3] * yb3vals[1] +
+                 spline->coeffs[(i+3)*my+j+2] * xb3vals[3] * yb3vals[2] +
+                 spline->coeffs[(i+3)*my+j+3] * xb3vals[3] * yb3vals[3]);
+        }
+    }
 
   return BS_OK;
 }
@@ -805,7 +1028,7 @@ bs_errorcode bs_uspline1d_create(bs_range x, bs_array y, bs_bcs bcs,
 {
     bs_uspline1d* spline = malloc(sizeof(bs_uspline1d));
 
-    int N = y.length;
+    int N = y.size;
     int M = N + 2;
     double didx = (N - 1) / (x.max - x.min); // equal to  1 / (step size)
 
@@ -874,7 +1097,7 @@ bs_errorcode bs_uspline1d_create(bs_range x, bs_array y, bs_bcs bcs,
   }
 
 
-  solve2(first, last, A, b, M);
+  solve(first, last, A, b, M);
   free(A);
   spline->coeffs = b;
 
@@ -897,7 +1120,7 @@ bs_errorcode bs_uspline1d_eval(bs_uspline1d *spline, bs_array x, bs_array out)
     double xval;
     double xfloor;
     double b3vals[4];
-    for (int j=0; j<x.length; j++) {
+    for (int j=0; j<x.size; j++) {
         // translate x onto unit basis
         xval = (x.data[j*x.stride] - spline->x.min) * spline->didx;
         xfloor = floor(xval);

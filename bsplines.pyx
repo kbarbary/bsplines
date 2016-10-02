@@ -13,12 +13,17 @@ cdef extern from "bs.h":
         BS_OUTOFMEMORY  = 1
         BS_DOMAINERROR  = 2
         BS_NOTMONOTONIC = 3
-        BS_LENGTHMISMATCH = 4
+        BS_SIZEMISMATCH = 4
 
     ctypedef struct bs_array:
         double *data
-        int length
+        int size
         int stride
+
+    ctypedef struct bs_array2d:
+        double *data
+        int sizes[2]
+        int strides[2]
 
     ctypedef struct bs_range:
         double min
@@ -60,6 +65,25 @@ cdef extern from "bs.h":
     bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
     void bs_spline1d_free(bs_spline1d *spline)
 
+    ctypedef struct bs_spline2d:
+        double *xknots
+        double *xconsts
+        double *yknots
+        double *yconsts
+        double *coeffs
+        int nx
+        int ny
+        bs_exts xexts
+        bs_exts yexts
+
+    bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
+                                    bs_bcs xbcs, bs_bcs ybcs,
+                                    bs_exts xexts, bs_exts yexts,
+                                    bs_spline2d **out)
+    bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y, bs_array2d out)
+    void         bs_spline2d_free(bs_spline2d *spline)
+
+    
     ctypedef struct bs_uspline1d:
         bs_range x
         double didx
@@ -83,7 +107,7 @@ class DomainError(Exception):
 # helpers
 
 cdef int assert_ok(bs_errorcode code) except -1:
-    """raise an exception of the error code is not OK"""
+    """raise an exception if the error code is not OK"""
     if code == BS_OK:
         return 0
     elif code == BS_OUTOFMEMORY:
@@ -92,14 +116,24 @@ cdef int assert_ok(bs_errorcode code) except -1:
         raise DomainError()
     elif code == BS_NOTMONOTONIC:
         raise ValueError("input array(s) not monotonically increasing")
-    elif code == BS_LENGTHMISMATCH:
-        raise ValueError("input arrays have different lengths")
+    elif code == BS_SIZEMISMATCH:
+        raise ValueError("input arrays have different sizes")
     else:
         raise Exception("unrecognized error")
 
 
 cdef inline bs_array to_bs_array(double[:] x):
     return bs_array(&x[0], x.shape[0], x.strides[0]//sizeof(double))
+
+
+cdef inline bs_array2d to_bs_array2d(double[:, :] x):
+    cdef bs_array2d out
+    out.data = &x[0, 0]
+    out.sizes[0] = x.shape[0]
+    out.sizes[1] = x.shape[1]
+    out.strides[0] = x.strides[0] // sizeof(double)
+    out.strides[1] = x.strides[1] // sizeof(double)
+    return out
 
 
 cdef int try_parse_boundary_condition(pybc, bs_bc *parsed_bc):
@@ -271,13 +305,6 @@ cdef class Spline1D:
         cdef double[:] x_ = np.asarray(x, dtype=np.float64)
         cdef double[:] y_ = np.asarray(y, dtype=np.float64)
 
-        # require 1-d arrays
-        if (x_.ndim != 1 or y_.ndim != 1):
-            raise ValueError("x and y must be 1-d arrays")
-
-        cdef bs_array x_arr = to_bs_array(x_)
-        cdef bs_array y_arr = to_bs_array(y_)
-
         # parse boundary conditions
         if not try_parse_boundary_conditions(bcs, &parsed_bcs):
             raise ValueError("unrecognized boundary condition(s): "+repr(bcs))
@@ -286,8 +313,8 @@ cdef class Spline1D:
         if not try_parse_extends(extend, &parsed_exts):
             raise ValueError("unrecognized extend: "+repr(extend))
 
-        code = bs_spline1d_create(x_arr, y_arr, parsed_bcs, parsed_exts,
-                                  &self.ptr)
+        code = bs_spline1d_create(to_bs_array(x_), to_bs_array(y_),
+                                  parsed_bcs, parsed_exts, &self.ptr)
         assert_ok(code)
 
 
@@ -397,7 +424,7 @@ cdef class USpline1D:
                 raise ValueError("x does not have uniform spacing")
             if not (len(x_) == len(y_)):
                 raise ValueError("x is array-like but x and y have different "
-                                 "lengths")
+                                 "sizes")
             xmin, xmax = x_[0], x_[-1]
 
         # parse boundary conditions
@@ -436,4 +463,79 @@ cdef class USpline1D:
     def coefficients(self):
         """Return the spline coefficients as a copy"""
         cdef double[:] view = <double[:(self.ptr.n+2)]>(self.ptr.coeffs)
+        return np.array(view)  # copy
+
+#------------------------------------------------------------------------------
+# 2-d splines
+#------------------------------------------------------------------------------
+
+cdef class Spline2D:
+    """
+    Spline2D(x, y, z, xbcs='notaknot', ybcs='notaknot', xextend='constant',
+             yextend='constant')
+
+    Two dimensional cubic basis spline.
+    
+    Parameters
+    ----------
+    x, y : `numpy.ndarray` (1-d)
+        Coordinates defining a 2-d grid.
+    z : `numpy.ndarray` (2-d)
+        Value at each of the grid points: ``z[i, j]`` is the value at
+        ``(x[i], y[j]``. Shape is ``(len(x), len(y))``.
+    """
+
+    cdef bs_spline2d *ptr   # pointer to c struct
+    
+    def __cinit__(self, x, y, z, xbcs='notaknot', ybcs='notaknot',
+                  xextend=0., yextend=0.):
+
+        cdef bs_bcs parsed_xbcs, parsed_ybcs
+        cdef bs_exts parsed_xexts, parsed_yexts
+        cdef bs_errorcode code
+        
+        # convert to double arrays if needed
+        cdef double[:] x_ = np.asarray(x, dtype=np.float64)
+        cdef double[:] y_ = np.asarray(y, dtype=np.float64)
+        cdef double[:, :] z_ = np.asarray(z, dtype=np.float64)
+
+        # parse boundary conditions
+        if not try_parse_boundary_conditions(xbcs, &parsed_xbcs):
+            raise ValueError("unrecognized boundary condition(s): "+repr(xbcs))
+        if not try_parse_boundary_conditions(ybcs, &parsed_ybcs):
+            raise ValueError("unrecognized boundary condition(s): "+repr(ybcs))
+
+        # parse exterior behavior
+        if not try_parse_extends(xextend, &parsed_xexts):
+            raise ValueError("unrecognized extend: "+repr(xextend))
+        if not try_parse_extends(yextend, &parsed_yexts):
+            raise ValueError("unrecognized extend: "+repr(yextend))
+
+        code = bs_spline2d_create(to_bs_array(x_), to_bs_array(y_),
+                                  to_bs_array2d(z_),
+                                  parsed_xbcs, parsed_ybcs,
+                                  parsed_xexts, parsed_yexts,
+                                  &self.ptr)
+        assert_ok(code)
+
+
+    def __dealloc__(self):
+        bs_spline2d_free(self.ptr)
+
+    def __call__(self, double[:] x, double[:] y):
+        
+        cdef bs_errorcode code
+        
+        out = np.empty((len(x), len(y)), dtype=np.float64)
+        cdef double[:, :] outview = out
+
+        code = bs_spline2d_eval(self.ptr, to_bs_array(x), to_bs_array(y),
+                                to_bs_array2d(outview))
+        assert_ok(code)
+
+        return out
+
+    def coefficients(self):
+        """Return the spline coefficients as a copy"""
+        cdef double[:, :] view = <double[:(self.ptr.nx+2), :(self.ptr.ny+2)]>(self.ptr.coeffs)
         return np.array(view)  # copy

@@ -10,7 +10,7 @@ typedef enum {
   BS_OUTOFMEMORY  = 1,
   BS_DOMAINERROR  = 2,
   BS_NOTMONOTONIC = 3,
-  BS_LENGTHMISMATCH = 4,
+  BS_SIZEMISMATCH = 4,
 } bs_errorcode;
 
 
@@ -20,9 +20,15 @@ typedef enum {
 
 typedef struct {
     double *data;
-    int length;
+    int size;
     int stride;
 } bs_array;
+
+typedef struct {
+    double *data;
+    int sizes[2];
+    int strides[2];
+} bs_array2d;
 
 typedef struct {
     double min; // inclusive
@@ -91,5 +97,30 @@ bs_errorcode bs_uspline1d_create(bs_range x, bs_array y,
                                  bs_bcs bcs, bs_exts exts, bs_uspline1d **out);
 bs_errorcode bs_uspline1d_eval(bs_uspline1d *spline, bs_array x, bs_array out);
 void         bs_uspline1d_free(bs_uspline1d *spline);
+
+
+//-----------------------------------------------------------------------------
+// 2-d splines
+//-----------------------------------------------------------------------------
+
+typedef struct {
+    double *xknots;
+    double *xconsts;
+    double *yknots;
+    double *yconsts;
+    double *coeffs;
+    int nx;
+    int ny;
+    bs_exts xexts;
+    bs_exts yexts;
+} bs_spline2d;
+
+bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
+                                bs_bcs xbcs, bs_bcs ybcs,
+                                bs_exts xexts, bs_exts yexts,
+                                bs_spline2d **out);
+bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y, bs_array2d out);
+void         bs_spline2d_free(bs_spline2d *spline);
+
 
 #endif

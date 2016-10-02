@@ -102,6 +102,7 @@ if __name__ == "__main__":
 
 
     results = OrderedDict([
+        ('bsplines.USpline1D', benchmark_creation_1d(USpline1D, {})),
         ('bsplines.Spline1D', benchmark_creation_1d(Spline1D, {})),
          ('SciPy CubicSpline', benchmark_creation_1d(SciPyCubicSpline, {})),
         ('SciPy UnivariateSpline',
