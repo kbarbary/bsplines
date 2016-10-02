@@ -757,11 +757,12 @@ bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
     // find coefficients along y (fast axis)
     double *A = malloc(3 * my * sizeof(double));
     for (int i=0; i<nx; i++) {
-        bs_array zslice = {z.data + z.strides[1]*i, z.sizes[0], z.strides[0]};
+        bs_array zslice = {z.data + z.strides[0]*i, z.sizes[1], z.strides[1]};
         find_1d_coefficients(spline->yknots, spline->yconsts, zslice,
                              ybcs, A, coeffs+(i*my));
     }
     free(A);
+    A = NULL;
 
     // find coefficients along x (slow axis);
     A = malloc(3 * mx * sizeof(double));
@@ -771,8 +772,8 @@ bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
         // `nx` coefficients we just found. They are strided in
         // `coeffs` by `my`.
         bs_array coeffs_slice = {coeffs + i, nx, my};
-        find_1d_coefficients(spline->yknots, spline->yconsts, coeffs_slice,
-                             ybcs, A, buf);
+        find_1d_coefficients(spline->xknots, spline->xconsts, coeffs_slice,
+                             xbcs, A, buf);
         
         // the results in `buf` are contiguous in x, but we need to
         // copy them back into the coefficients array strided.
