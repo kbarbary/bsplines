@@ -631,16 +631,6 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
   spline->exts = exts;
   spline->consts = alloc_constants(spline->knots, N);
 
-  // process "constant" extends
-  if (spline->exts.left.type == BS_CONSTANT) {
-      spline->exts.left.type = BS_VALUE;
-      spline->exts.left.value = y.data[0];
-  }
-  if (spline->exts.right.type == BS_CONSTANT) {
-      spline->exts.right.type = BS_VALUE;
-      spline->exts.right.value = y.data[(N-1)*y.stride];
-  }
-
   double *A = malloc(3 * M * sizeof(double));  // sparse row representation
   double *coeffs = malloc(M * sizeof(double)); 
 
@@ -685,6 +675,10 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
       case BS_EXTRAPOLATE:
         i = 0;
         break;
+      case BS_CONSTANT:
+          i = 0;
+          xval = spline->knots[0];
+          break;
       case BS_VALUE:
         out.data[j * out.stride] = spline->exts.left.value;
         continue;
@@ -699,6 +693,10 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
       case BS_EXTRAPOLATE:
         i = spline->n - 2;
         break;
+      case BS_CONSTANT:
+          i = spline->n-2;
+          xval = spline->knots[spline->n-1];
+          break;
       case BS_VALUE:
         out.data[j * out.stride] = spline->exts.right.value;
         continue;
@@ -824,6 +822,10 @@ bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y,
             case BS_EXTRAPOLATE:
                 i = 0;
                 break;
+            case BS_CONSTANT:
+                i = 0;
+                xval = spline->xknots[0];
+                break;
             case BS_VALUE:
                 for (int l=0; l<y.size; l++) {
                     out.data[k * out.strides[0] + l * out.strides[1]] =
@@ -840,6 +842,10 @@ bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y,
             switch (spline->xexts.right.type) {
             case BS_EXTRAPOLATE:
                 i = spline->nx - 2;
+                break;
+            case BS_CONSTANT:
+                i = spline->nx - 2;
+                xval = spline->xknots[spline->nx-1];
                 break;
             case BS_VALUE:
                 for (int l=0; l<y.size; l++) {
@@ -867,6 +873,10 @@ bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y,
                 case BS_EXTRAPOLATE:
                     j = 0;
                     break;
+                case BS_CONSTANT:
+                    j = 0;
+                    yval = spline->yknots[0];
+                    break;
                 case BS_VALUE:
                     out.data[k * out.strides[0] + l * out.strides[1]] =
                         spline->yexts.left.value;
@@ -881,6 +891,10 @@ bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y,
                 switch (spline->yexts.right.type) {
                 case BS_EXTRAPOLATE:
                     j = spline->ny - 2;
+                    break;
+                case BS_CONSTANT:
+                    j = spline->ny - 2;
+                    yval = spline->yknots[spline->ny-1];
                     break;
                 case BS_VALUE:
                     out.data[k * out.strides[0] + l * out.strides[1]] =
@@ -1046,16 +1060,6 @@ bs_errorcode bs_uspline1d_create(bs_range x, bs_array y, bs_bcs bcs,
     spline->n = N;
     spline->exts = exts;
 
-    // process "constant" extends
-    if (spline->exts.left.type == BS_CONSTANT) {
-        spline->exts.left.type = BS_VALUE;
-        spline->exts.left.value = y.data[0];
-    }
-    if (spline->exts.right.type == BS_CONSTANT) {
-        spline->exts.right.type = BS_VALUE;
-        spline->exts.right.value = y.data[(N-1)*y.stride];
-    }
-
     double first[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
     double last[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
     double *A = malloc(3 * M * sizeof(double));  // sparse row representation
@@ -1134,6 +1138,11 @@ bs_errorcode bs_uspline1d_eval(bs_uspline1d *spline, bs_array x, bs_array out)
                 i = 0;
                 xfloor = 0.0;
                 break;
+            case BS_CONSTANT:
+                i = 0;
+                xfloor = 0.0;
+                xval = 0.0;
+                break;
             case BS_VALUE:
                 out.data[j * out.stride] = spline->exts.left.value;
                 continue;
@@ -1149,6 +1158,11 @@ bs_errorcode bs_uspline1d_eval(bs_uspline1d *spline, bs_array x, bs_array out)
                 i = spline->n - 2;
                 xfloor = i;
                 break;
+            case BS_CONSTANT:
+                i = spline->n - 2;
+                xfloor = i;
+                xval = xfloor+1.0;
+                break;
             case BS_VALUE:
                 out.data[j * out.stride] = spline->exts.right.value;
                 continue;
@@ -1157,7 +1171,7 @@ bs_errorcode bs_uspline1d_eval(bs_uspline1d *spline, bs_array x, bs_array out)
             }
         }
 
-        // if we get this far, we're either extrapolating or xval is in range.
+        // if we get this far, we're evaluating the spline
         b3unonzeros(xval - xfloor, b3vals);
         out.data[j*out.stride] = (spline->coeffs[i]   * b3vals[0] +
                                   spline->coeffs[i+1] * b3vals[1] +
