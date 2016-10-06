@@ -51,6 +51,17 @@ typedef struct {
   bs_bc right;
 } bs_bcs;
 
+// array boundary conditions for spline2d.
+typedef struct {
+    bs_bctype type;
+    bs_array values;
+} bs_vecbc;
+
+typedef struct {
+    bs_vecbc left;
+    bs_vecbc right;
+} bs_vecbcs;
+
 //-----------------------------------------------------------------------------
 // out-of-domain behavior ("extension")
 //-----------------------------------------------------------------------------

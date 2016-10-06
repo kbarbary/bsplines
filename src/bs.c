@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <bs.h>
 
@@ -465,9 +466,45 @@ static void solve_simple(double* restrict A, double* restrict b, int n)
 //
 //-----------------------------------------------------------------------------
 
-static void solve(double first[restrict 5], double last[restrict 5],
-                   double* restrict A, double* restrict b, int n)
+typedef struct {
+    double *first;
+    double *rows; // first + 5
+    double *last; // first + 5 + 3*(M-1)
+} banded_matrix;
+
+
+// allocate storate for a banded matrix.
+// M is total number of rows, including first and last.
+static banded_matrix alloc_banded_matrix(int M)
 {
+    double* first = malloc((5 + 3*(M-1) + 5) * sizeof(double));
+    banded_matrix m = {first, first + 5, first + 5 + 3*(M-1)};
+    return m;
+}
+
+
+static void free_banded_matrix(banded_matrix A)
+{
+    free(A.first);
+    A.first = NULL;
+    A.rows = NULL;
+    A.last = NULL;
+}
+
+
+static void copy_banded_matrix(banded_matrix dst, banded_matrix src, int M)
+{
+    size_t nbytes = (10 + 3*(M-1)) * sizeof(double);
+    memcpy(dst.first, src.first, nbytes);
+}
+
+
+static void solve(banded_matrix mat, double* restrict b, int n)
+{
+    double* restrict first = mat.first;
+    double* restrict A = mat.rows;
+    double* restrict last = mat.last;
+
     // rows 1, 2, 3: divide by first non-zero
     //
     // x x x x x | y       x x x x x | y
@@ -643,63 +680,72 @@ static void notaknot_row(double *consts, int i, double row[5])
 // - b would be different each time so we'd hae to fill it each time
 //   separately, including for boundary conditions.
 
-// Find spline coefficients along one dimension.
-// knots and consts are as belong to a spline.
-// coeffs is size values.size + 2 with stride cstride.
-// A is a buffer with size 3*(values.size + 2)
-static void find_1d_coefficients(double* restrict knots,
-                                 double* restrict consts,
-                                 bs_array values, bs_bcs bcs,
-                                 double* restrict A,
-                                 double* restrict coeffs)
+
+static void fill_banded_matrix(banded_matrix A, double* restrict knots,
+                               double* restrict consts, int N,
+                               bs_bctype bctypes[2])
 {
-    double first[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
-    double last[6]  = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    int N = values.size;
-    int M = N+2;
+    double* restrict first = A.first;
+    double* restrict rows = A.rows;
+    double* restrict last = A.last;
+
+    // Left boundary condition
+    switch (bctypes[0]) {
+    case BS_DERIV1:
+        db3nonzeros(knots[0], 0, knots, consts, first);
+        first[3] = first[4] = 0.0;
+        break;
+    case BS_DERIV2:
+        d2b3nonzeros(knots[0], 0, knots, consts, first);
+        first[3] = first[4] = 0.0;
+        break;
+    case BS_NOTAKNOT:
+        notaknot_row(consts, 1, first);
+    }
     
     // fill rows 1 through M-1 with values of b_{i-3}, b_{i-2}, b{i-1}
     // at knot i.
     for (int i=0; i<N; i++) {
-        b3nonzeros(knots[i], i, knots, consts, A + 3*(i+1));
-        coeffs[i+1] = values.data[i * values.stride];
-    }
-
-    // Left boundary condition
-    switch (bcs.left.type) {
-    case BS_DERIV1:
-        db3nonzeros(knots[0], 0, knots, consts, first);
-        coeffs[0] = bcs.left.value;
-        break;
-    case BS_DERIV2:
-        d2b3nonzeros(knots[0], 0, knots, consts, first);
-        coeffs[0] = bcs.left.value;
-        break;
-    case BS_NOTAKNOT:
-        notaknot_row(consts, 1, first);
-        coeffs[0] = 0.0;
+        b3nonzeros(knots[i], i, knots, consts, rows + 3*(i+1));
     }
 
     // Right boundary condition
-    switch (bcs.right.type) {
+    switch (bctypes[1]) {
     case BS_DERIV1:
-        db3nonzeros(knots[N-1], N-1, knots, consts,
-                    last+2);
-        coeffs[M-1] = bcs.right.value;
+        db3nonzeros(knots[N-1], N-1, knots, consts, last);
+        for (int i=0; i<3; i++) last[i+2] = last[i];
+        last[0] = last[1] = 0.0;
         break;
     case BS_DERIV2:
-        d2b3nonzeros(knots[N-1], N-1, knots, consts,
-                     last+2);
-        coeffs[M-1] = bcs.right.value;
+        d2b3nonzeros(knots[N-1], N-1, knots, consts, last);
+        for (int i=0; i<3; i++) last[i+2] = last[i];
+        last[0] = last[1] = 0.0;
         break;
     case BS_NOTAKNOT:
         notaknot_row(consts, N-2, last);
-        coeffs[M-1] = 0.0;
     }
-
-    solve(first, last, A, coeffs, M);
 }
 
+    
+// Find spline coefficients along one dimension.
+// knots and consts are as belong to a spline.
+// A should be allocated with M = values.size + 2.
+// coeffs should be size M.
+static void find_1d_coefficients(banded_matrix A,
+                                 bs_array values, double bcvalues[2],
+                                 double* restrict coeffs)
+{
+    int N = values.size;
+    int M = N+2;
+    
+    coeffs[0] = bcvalues[0];
+    for (int i=0; i<N; i++) {
+        coeffs[i+1] = values.data[i * values.stride];
+    }
+    coeffs[M-1] = bcvalues[1];
+
+    solve(A, coeffs, M);
+}
 
 //-----------------------------------------------------------------------------
 // spline1d
@@ -723,16 +769,22 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
     spline->n = N;
     spline->exts = exts;
     spline->consts = alloc_constants(spline->knots, N);
+    spline->coeffs = malloc(M * sizeof(double));
+    
+    banded_matrix A = alloc_banded_matrix(M);
 
-    double *A = malloc(3 * M * sizeof(double));  // sparse row representation
-    double *coeffs = malloc(M * sizeof(double)); 
+    bs_bctype bctypes[2] = {bcs.left.type, bcs.right.type};
+    fill_banded_matrix(A, spline->knots, spline->consts, N, bctypes);
 
-    find_1d_coefficients(spline->knots, spline->consts, y, bcs, A, coeffs);
-    free(A);
+    double bcvalues[2];
+    bcvalues[0] = (bcs.left.type == BS_NOTAKNOT) ? 0.0 : bcs.left.value;
+    bcvalues[1] = (bcs.right.type == BS_NOTAKNOT) ? 0.0 : bcs.right.value;
 
-    spline->coeffs = coeffs;
+    find_1d_coefficients(A, y, bcvalues, spline->coeffs);
+
+    free_banded_matrix(A);
+
     *out = spline;
-
     return BS_OK;
 }
 
@@ -846,31 +898,57 @@ bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
     double* coeffs = malloc(mx * my * sizeof(double));
     
     // find coefficients along y (fast axis)
-    double *A = malloc(3 * my * sizeof(double));
+    banded_matrix A     = alloc_banded_matrix(my);
+    banded_matrix Awork = alloc_banded_matrix(my);
+
+    bs_bctype bctypes[2] = {ybcs.left.type, ybcs.right.type};
+    fill_banded_matrix(A, spline->yknots, spline->yconsts, spline->ny,
+                       bctypes);
+
     for (int i=0; i<nx; i++) {
         bs_array zslice = {z.data + z.strides[0]*i, z.sizes[1], z.strides[1]};
-        find_1d_coefficients(spline->yknots, spline->yconsts, zslice,
-                             ybcs, A, coeffs+(i*my));
-    }
-    free(A);
-    A = NULL;
 
-    // find coefficients along x (slow axis);
-    A = malloc(3 * mx * sizeof(double));
+        double bcvalues[2];
+        bcvalues[0] = (ybcs.left.type == BS_NOTAKNOT) ? 0.0 : ybcs.left.value;
+        bcvalues[1] = (ybcs.right.type == BS_NOTAKNOT) ? 0.0 : ybcs.right.value;
+
+        copy_banded_matrix(Awork, A, my);
+        find_1d_coefficients(Awork, zslice, bcvalues, coeffs+(i*my));
+    }
+
+    free_banded_matrix(A);
+    free_banded_matrix(Awork);
+
+    // find coefficients along x (slow axis)
+    A     = alloc_banded_matrix(mx);
+    Awork = alloc_banded_matrix(mx);
+
+    bctypes[0] = xbcs.left.type;
+    bctypes[1] = xbcs.right.type;
+    fill_banded_matrix(A, spline->xknots, spline->xconsts, spline->nx,
+                       bctypes);
+
     double *buf = malloc(mx * sizeof(double));
     for (int i=0; i<my; i++) {
         // for this slice in constant y, the target values are the
         // `nx` coefficients we just found. They are strided in
         // `coeffs` by `my`.
+        copy_banded_matrix(Awork, A, mx);
         bs_array coeffs_slice = {coeffs + i, nx, my};
-        find_1d_coefficients(spline->xknots, spline->xconsts, coeffs_slice,
-                             xbcs, A, buf);
+
+        double bcvalues[2];
+        bcvalues[0] = (xbcs.left.type == BS_NOTAKNOT) ? 0.0 : xbcs.left.value;
+        bcvalues[1] = (xbcs.right.type == BS_NOTAKNOT) ? 0.0 : xbcs.right.value;
+
+        find_1d_coefficients(Awork, coeffs_slice, bcvalues, buf);
         
         // the results in `buf` are contiguous in x, but we need to
         // copy them back into the coefficients array strided.
         for (int j=0; j<mx; j++) coeffs[i+my*j] = buf[j];
     }
-    free(A);
+
+    free_banded_matrix(A);
+    free_banded_matrix(Awork);
     free(buf);
 
     spline->coeffs = coeffs;
@@ -878,6 +956,7 @@ bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
 
     return BS_OK;
 }
+
 
 void bs_spline2d_free(bs_spline2d* spline)
 {
@@ -890,6 +969,7 @@ void bs_spline2d_free(bs_spline2d* spline)
         free(spline);
     }
 }
+
 
 bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y,
                               bs_array2d out)
@@ -1030,6 +1110,51 @@ bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y,
 //-----------------------------------------------------------------------------
 // uspline1d
 //-----------------------------------------------------------------------------
+static void fill_banded_matrix_u(banded_matrix A, int N, double didx,
+                                 bs_bctype bctypes[2])
+{
+    // values, first and second derivatives of b3_{i-3}, b3_{i-2}, b3_{i-1}
+    // at knot i.
+    const double b3vals[3] = {1.0/6.0, 2.0/3.0, 1.0/6.0};
+    const double db3vals[3] = {-0.5 * didx, 0.0, 0.5 * didx};
+    const double d2b3vals[3] = {didx * didx, -2.0 * didx * didx, didx * didx};
+    const double notaknot_row[5] = {-1.0, 4.0, -6.0, 4.0, -1.0};
+
+    // Left boundary condition
+    switch (bctypes[0]) {
+    case BS_DERIV1:
+        for (int i=0; i<3; i++) A.first[i] = db3vals[i];
+        A.first[3] = A.first[4] = 0.0;
+        break;
+    case BS_DERIV2:
+        for (int i=0; i<3; i++) A.first[i] = d2b3vals[i];
+        A.first[3] = A.first[4] = 0.0;
+        break;
+    case BS_NOTAKNOT:
+        for (int i=0; i<5; i++) A.first[i] = notaknot_row[i];
+    }
+
+    // rows
+    for (int i=0; i<N; i++) {
+        for (int j=0; j<3; j++) A.rows[3*(i+1)+j] = b3vals[j];
+    }
+
+    // Right boundary condition
+    switch (bctypes[1]) {
+    case BS_DERIV1:
+        A.last[0] = A.last[1] = 0.0;
+        for (int i=0; i<3; i++) A.last[i+2] = db3vals[i];
+        break;
+    case BS_DERIV2:
+        A.last[0] = A.last[1] = 0.0;
+        for (int i=0; i<3; i++) A.last[i+2] = d2b3vals[i];
+        break;
+    case BS_NOTAKNOT:
+        for (int i=0; i<5; i++) A.last[i] = notaknot_row[i];
+    }
+}
+    
+
 
 bs_errorcode bs_uspline1d_create(bs_range x, bs_array y, bs_bcs bcs,
                                  bs_exts exts, bs_uspline1d **out)
@@ -1040,65 +1165,30 @@ bs_errorcode bs_uspline1d_create(bs_range x, bs_array y, bs_bcs bcs,
     int M = N + 2;
     double didx = (N - 1) / (x.max - x.min); // equal to  1 / (step size)
 
-    // values, first and second derivatives of b3_{i-3}, b3_{i-2}, b3_{i-1}
-    // at knot i.
-    const double b3vals[3] = {1.0/6.0, 2.0/3.0, 1.0/6.0};
-    const double db3vals[3] = {-0.5 * didx, 0.0, 0.5 * didx};
-    const double d2b3vals[3] = {didx * didx, -2.0 * didx * didx, didx * didx};
-    const double notaknot_row[5] = {-1.0, 4.0, -6.0, 4.0, -1.0};
-    
     spline->x = x;
     spline->didx = didx;
 
     spline->n = N;
     spline->exts = exts;
 
-    double first[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
-    double last[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
-    double *A = malloc(3 * M * sizeof(double));  // sparse row representation
-    double *b = malloc(M * sizeof(double));
+    double* restrict b = malloc(M * sizeof(double));
 
-    // fill rows 1 through M-1 with values of b_{i-3}, b_{i-2}, b{i-1}
-    // at knot i.
+    banded_matrix A = alloc_banded_matrix(M);
+    
+    bs_bctype bctypes[2] = {bcs.left.type, bcs.right.type};
+    fill_banded_matrix_u(A, N, didx, bctypes);
+
+    // fill RHS
+    b[0] = (bcs.left.type == BS_NOTAKNOT)? 0.0: bcs.left.value;
+    b[M-1] = (bcs.right.type == BS_NOTAKNOT)? 0.0: bcs.right.value;
     for (int i=0; i<N; i++) {
-        for (int j=0; j<3; j++) A[3*(i+1)+j] = b3vals[j];
         b[i+1] = y.data[i * y.stride];
     }
 
-    // Left boundary condition
-    switch (bcs.left.type) {
-    case BS_DERIV1:
-        for (int i=0; i<3; i++) first[i] = db3vals[i];
-        b[0] = bcs.left.value;
-        break;
-    case BS_DERIV2:
-        for (int i=0; i<3; i++) first[i] = d2b3vals[i];
-        b[0] = bcs.left.value;
-        break;
-    case BS_NOTAKNOT:
-        for (int i=0; i<5; i++) first[i] = notaknot_row[i];
-        b[0] = 0.0;
-    }
-
-    // Right boundary condition
-    switch (bcs.right.type) {
-    case BS_DERIV1:
-        for (int i=0; i<3; i++) last[i+2] = db3vals[i];
-        b[M-1] = bcs.right.value;
-        break;
-    case BS_DERIV2:
-        for (int i=0; i<3; i++) last[i+2] = d2b3vals[i];
-        b[M-1] = bcs.right.value;
-        break;
-    case BS_NOTAKNOT:
-        for (int i=0; i<5; i++) last[i] = notaknot_row[i];
-        b[M-1] = 0.0;
-    }
-
-    solve(first, last, A, b, M);
-    free(A);
+    solve(A, b, M);
+    free_banded_matrix(A);
+    
     spline->coeffs = b;
-
     *out = spline;
     return BS_OK;
 }
@@ -1111,6 +1201,7 @@ void bs_uspline1d_free(bs_uspline1d* spline)
         free(spline);
     }
 }
+
 
 bs_errorcode bs_uspline1d_eval(bs_uspline1d *spline, bs_array x, bs_array out)
 {
