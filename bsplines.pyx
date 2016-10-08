@@ -15,7 +15,8 @@ cdef extern from "bs.h":
         BS_NOTMONOTONIC = 3
         BS_SIZEMISMATCH = 4
         BS_BCSIZEMISMATCH = 5
-
+        BS_TOOFEWPOINTS = 6
+        
     ctypedef struct bs_array:
         double *data
         int size
@@ -131,6 +132,8 @@ cdef int assert_ok(bs_errorcode code) except -1:
         raise ValueError("input array size mismatch")
     elif code == BS_BCSIZEMISMATCH:
         raise ValueError("boundary condition size mismatch")
+    elif code == BS_TOOFEWPOINTS:
+        raise ValueError("Too few points in input array. required: 2 + (1 for each not-a-knot condition)")
     else:
         raise Exception("unrecognized error")
 

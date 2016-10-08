@@ -78,6 +78,11 @@ static int is_monotonic(bs_array x)
   return ok;
 }
 
+static int min_points(bs_bctype left, bs_bctype right)
+{
+    // one additional point needed for each not-a-knot condition.
+    int n = 2 + (left == BS_NOTAKNOT) + (right == BS_NOTAKNOT);
+}
 
 //-----------------------------------------------------------------------------
 // knots & constants
@@ -760,6 +765,8 @@ bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs,
     // checks
     if (x.size != y.size) return BS_SIZEMISMATCH;
     if (!is_monotonic(x)) return BS_NOTMONOTONIC;
+    if (x.size < min_points(bcs.left.type, bcs.right.type))
+        return BS_TOOFEWPOINTS;
 
     bs_spline1d* spline = malloc(sizeof(bs_spline1d));
   
@@ -891,7 +898,10 @@ bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
         return BS_SIZEMISMATCH;
     if (!is_monotonic(x) || !is_monotonic(y))
         return BS_NOTMONOTONIC;
-
+    if ((x.size < min_points(xbcs.left.type, xbcs.right.type)) ||
+        (y.size < min_points(ybcs.left.type, ybcs.right.type)))
+        return BS_TOOFEWPOINTS;
+    
     // check if boundary condition sizes match x and y sizes.
     if (!(bcarray_size_match(xbcs.left, y.size) &&
           bcarray_size_match(xbcs.right, y.size) &&
@@ -1181,6 +1191,9 @@ static void fill_banded_matrix_u(banded_matrix A, int N, double didx,
 bs_errorcode bs_uspline1d_create(bs_range x, bs_array y, bs_bcs bcs,
                                  bs_exts exts, bs_uspline1d **out)
 {
+    if (y.size < min_points(bcs.left.type, bcs.right.type))
+        return BS_TOOFEWPOINTS;
+
     bs_uspline1d* spline = malloc(sizeof(bs_uspline1d));
 
     int N = y.size;

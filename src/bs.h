@@ -12,6 +12,7 @@ typedef enum {
   BS_NOTMONOTONIC = 3,
   BS_SIZEMISMATCH = 4,
   BS_BCSIZEMISMATCH = 5,
+  BS_TOOFEWPOINTS = 6,
 } bs_errorcode;
 
 
