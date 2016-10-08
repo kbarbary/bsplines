@@ -674,12 +674,6 @@ static void notaknot_row(double *consts, int i, double row[5])
     }
 }
 
-// TODO: function to just fill A, so we can do it just once in each
-// dimension for spline2d? Problem is:
-// - we'd have to also pass around first, last
-// - b would be different each time so we'd hae to fill it each time
-//   separately, including for boundary conditions.
-
 
 static void fill_banded_matrix(banded_matrix A, double* restrict knots,
                                double* restrict consts, int N,
@@ -713,12 +707,12 @@ static void fill_banded_matrix(banded_matrix A, double* restrict knots,
     switch (bctypes[1]) {
     case BS_DERIV1:
         db3nonzeros(knots[N-1], N-1, knots, consts, last);
-        for (int i=0; i<3; i++) last[i+2] = last[i];
+        for (int i=4; i>1; i--) last[i] = last[i-2];
         last[0] = last[1] = 0.0;
         break;
     case BS_DERIV2:
         d2b3nonzeros(knots[N-1], N-1, knots, consts, last);
-        for (int i=0; i<3; i++) last[i+2] = last[i];
+        for (int i=4; i>1; i--) last[i] = last[i-2];
         last[0] = last[1] = 0.0;
         break;
     case BS_NOTAKNOT:
