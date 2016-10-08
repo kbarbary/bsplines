@@ -136,6 +136,26 @@ def benchmark_create_2d(cls, kwargs):
             'nloops': nloops.tolist(),
             'times': times.tolist()}
 
+def benchmark_eval_2d(cls, kwargs):
+    nknots = 100
+    x = np.linspace(0., float(nknots), nknots)
+    y = np.linspace(0., float(nknots), nknots)
+    z = np.sin(x) + np.cos(y).reshape((nknots, 1))
+    s = cls(x, y, z, **kwargs)
+    
+    sizes = np.array([3, 10, 30, 100, 300, 1000])
+    nloops = np.empty_like(sizes)
+    times = np.empty_like(sizes, dtype=np.float64)
+    for i, n in enumerate(sizes):
+        xp = np.linspace(0., float(n), n)
+        yp = np.linspace(0., float(n), n)
+
+        times[i], nloops[i] = timeit(s, (xp, yp), {})
+
+    return {'sizes': sizes.tolist(),
+            'nloops': nloops.tolist(),
+            'times': times.tolist()}
+
 
 if __name__ == "__main__":
 
@@ -175,4 +195,14 @@ if __name__ == "__main__":
          benchmark_create_2d(RectBivariateSpline, {'kx': 3, 'ky': 3}))
     ])
 
-    print_results(results, "2-d spline creation", "knots (each dimension)")
+    print_results(results, "2-d spline creation", "knots")
+
+
+    # 2-d eval
+    results = OrderedDict([
+        ('bsplines.Spline2D', benchmark_eval_2d(Spline2D, {})),
+        ('SciPy RectBivariateSpline',
+         benchmark_eval_2d(RectBivariateSpline, {'kx': 3, 'ky': 3}))
+    ])
+
+    print_results(results, "2-d spline evaluation", "points")
