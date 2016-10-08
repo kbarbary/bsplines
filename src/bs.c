@@ -3,6 +3,13 @@
 #include <math.h>
 #include <bs.h>
 
+#if defined(_MSC_VER)
+  #define INLINE _inline
+#else
+  #define INLINE inline
+#endif
+
+
 //-----------------------------------------------------------------------------
 // debug stuff (remove later)
 #include <stdio.h>
@@ -860,9 +867,23 @@ bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
 // spline2d
 //-----------------------------------------------------------------------------
 
+// get the i-th bc value
+static double get_bcarray_value(bs_bcarray bc, int i)
+{
+    return (bc.type == BS_NOTAKNOT) ? 0.0 : bc.data[i * bc.stride];
+}
+
+static int bcarray_size_match(bs_bcarray bc, int size)
+{
+    // if not-a-knot, value is not used, so size is OK.
+    return (bc.type == BS_NOTAKNOT) ? 1 : (bc.size == size);
+}
+
+
 bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
-                                bs_bcs xbcs, bs_bcs ybcs, bs_exts xexts,
-                                bs_exts yexts, bs_spline2d **out)
+                                bs_bcarray_pair xbcs, bs_bcarray_pair ybcs,
+                                bs_exts xexts, bs_exts yexts,
+                                bs_spline2d **out)
 {
     *out = NULL;  // In case of error, ensure that output pointer is NULL.
 
@@ -870,6 +891,13 @@ bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
         return BS_SIZEMISMATCH;
     if (!is_monotonic(x) || !is_monotonic(y))
         return BS_NOTMONOTONIC;
+
+    // check if boundary condition sizes match x and y sizes.
+    if (!(bcarray_size_match(xbcs.left, y.size) &&
+          bcarray_size_match(xbcs.right, y.size) &&
+          bcarray_size_match(ybcs.left, x.size) &&
+          bcarray_size_match(ybcs.left, x.size)))
+        return BS_BCSIZEMISMATCH;
 
     bs_spline2d* spline = malloc(sizeof(bs_spline2d));
   
@@ -903,8 +931,8 @@ bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
         bs_array zslice = {z.data + z.strides[0]*i, z.sizes[1], z.strides[1]};
 
         double bcvalues[2];
-        bcvalues[0] = (ybcs.left.type == BS_NOTAKNOT) ? 0.0 : ybcs.left.value;
-        bcvalues[1] = (ybcs.right.type == BS_NOTAKNOT) ? 0.0 : ybcs.right.value;
+        bcvalues[0] = get_bcarray_value(ybcs.left, i);
+        bcvalues[1] = get_bcarray_value(ybcs.right, i);
 
         copy_banded_matrix(Awork, A, my);
         find_1d_coefficients(Awork, zslice, bcvalues, coeffs+(i*my));
@@ -931,8 +959,8 @@ bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
         bs_array coeffs_slice = {coeffs + i, nx, my};
 
         double bcvalues[2];
-        bcvalues[0] = (xbcs.left.type == BS_NOTAKNOT) ? 0.0 : xbcs.left.value;
-        bcvalues[1] = (xbcs.right.type == BS_NOTAKNOT) ? 0.0 : xbcs.right.value;
+        bcvalues[0] = get_bcarray_value(xbcs.left, i);
+        bcvalues[1] = get_bcarray_value(xbcs.right, i);
 
         find_1d_coefficients(Awork, coeffs_slice, bcvalues, buf);
         

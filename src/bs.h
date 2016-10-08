@@ -11,6 +11,7 @@ typedef enum {
   BS_DOMAINERROR  = 2,
   BS_NOTMONOTONIC = 3,
   BS_SIZEMISMATCH = 4,
+  BS_BCSIZEMISMATCH = 5,
 } bs_errorcode;
 
 
@@ -54,13 +55,15 @@ typedef struct {
 // array boundary conditions for spline2d.
 typedef struct {
     bs_bctype type;
-    bs_array values;
-} bs_vecbc;
+    double *data;
+    int size;
+    int stride;
+} bs_bcarray;
 
 typedef struct {
-    bs_vecbc left;
-    bs_vecbc right;
-} bs_vecbcs;
+    bs_bcarray left;
+    bs_bcarray right;
+} bs_bcarray_pair;
 
 //-----------------------------------------------------------------------------
 // out-of-domain behavior ("extension")
@@ -127,7 +130,7 @@ typedef struct {
 } bs_spline2d;
 
 bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
-                                bs_bcs xbcs, bs_bcs ybcs,
+                                bs_bcarray_pair xbcs, bs_bcarray_pair ybcs,
                                 bs_exts xexts, bs_exts yexts,
                                 bs_spline2d **out);
 bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y, bs_array2d out);

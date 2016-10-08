@@ -14,6 +14,7 @@ cdef extern from "bs.h":
         BS_DOMAINERROR  = 2
         BS_NOTMONOTONIC = 3
         BS_SIZEMISMATCH = 4
+        BS_BCSIZEMISMATCH = 5
 
     ctypedef struct bs_array:
         double *data
@@ -61,6 +62,16 @@ cdef extern from "bs.h":
         double *coeffs
         int n
 
+    ctypedef struct bs_bcarray:
+        bs_bctype type
+        double *data
+        int size
+        int stride
+
+    ctypedef struct bs_bcarray_pair:
+        bs_bcarray left
+        bs_bcarray right
+        
     bs_errorcode bs_spline1d_create(bs_array x, bs_array y, bs_bcs bcs, bs_exts exts, bs_spline1d **out)
     bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
     void bs_spline1d_free(bs_spline1d *spline)
@@ -77,7 +88,7 @@ cdef extern from "bs.h":
         bs_exts yexts
 
     bs_errorcode bs_spline2d_create(bs_array x, bs_array y, bs_array2d z,
-                                    bs_bcs xbcs, bs_bcs ybcs,
+                                    bs_bcarray_pair xbcs, bs_bcarray_pair ybcs,
                                     bs_exts xexts, bs_exts yexts,
                                     bs_spline2d **out)
     bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y, bs_array2d out)
@@ -117,7 +128,9 @@ cdef int assert_ok(bs_errorcode code) except -1:
     elif code == BS_NOTMONOTONIC:
         raise ValueError("input array(s) not monotonically increasing")
     elif code == BS_SIZEMISMATCH:
-        raise ValueError("input arrays have different sizes")
+        raise ValueError("input array size mismatch")
+    elif code == BS_BCSIZEMISMATCH:
+        raise ValueError("boundary condition size mismatch")
     else:
         raise Exception("unrecognized error")
 
@@ -136,7 +149,7 @@ cdef inline bs_array2d to_bs_array2d(double[:, :] x):
     return out
 
 
-cdef int try_parse_boundary_condition(pybc, bs_bc *parsed_bc):
+cdef int try_parse_bc(pybc, bs_bc *parsed_bc) except -1:
     """Try to parse a single Python value as a single boundary condition
 
     Returns 1 if parsing is sucessful, else 0.
@@ -167,25 +180,95 @@ cdef int try_parse_boundary_condition(pybc, bs_bc *parsed_bc):
     return 0
 
     
-cdef int try_parse_boundary_conditions(pybcs, bs_bcs *parsed_bcs):
+cdef int try_parse_bcs(pybcs, bs_bcs *parsed_bcs) except -1:
     """Try to parse boundary conditions. Returns 1 if sucessful, else 0."""
 
     # try to parse the expression as a boundary condition: if it works,
     # apply to both right and left.
-    if try_parse_boundary_condition(pybcs, &parsed_bcs.left):
+    if try_parse_bc(pybcs, &parsed_bcs.left):
         parsed_bcs.right = parsed_bcs.left
         return 1
 
     # next, try to parse the expression as a left and right bc separately.
     if (len(pybcs) == 2 and
-        try_parse_boundary_condition(pybcs[0], &parsed_bcs.left) and
-        try_parse_boundary_condition(pybcs[1], &parsed_bcs.right)):
+        try_parse_bc(pybcs[0], &parsed_bcs.left) and
+        try_parse_bc(pybcs[1], &parsed_bcs.right)):
         return 1
 
     return 0
 
 
-cdef int try_parse_extend(pyextend, bs_ext *parsed_ext):
+cdef double zero = 0.0;
+
+
+def broadcast_to(x, shape):
+    return np.nditer((x,),
+                     flags=['multi_index', 'refs_ok', 'zerosize_ok'],
+                     op_flags=['readonly'], itershape=shape,
+                     order='C').itviews[0]
+
+
+cdef int try_parse_bcarray(pybc, bs_bcarray *parsed_bc, int size) except -1:
+    """Try to parse a single Python value as a single boundary condition
+
+    Returns 1 if parsing is sucessful, else 0.
+    """
+    cdef double[:] values
+
+    
+    if pybc == "notaknot":
+        parsed_bc.type = BS_NOTAKNOT
+        parsed_bc.data = NULL  # not used
+        return 1
+    elif pybc == "natural":
+        parsed_bc.type = BS_DERIV2
+        parsed_bc.data = &zero;
+        parsed_bc.size = size;
+        parsed_bc.stride = 0;
+        return 1
+    elif pybc == "flat":
+        parsed_bc.type = BS_DERIV1
+        parsed_bc.data = &zero;
+        parsed_bc.size = size;
+        parsed_bc.stride = 0;
+        return 1
+    elif len(pybc) == 2:
+        values = broadcast_to(pybc[1], (size,))
+        if pybc[0] == "deriv1":
+            parsed_bc.type = BS_DERIV1
+            parsed_bc.data = &values[0]
+            parsed_bc.size = values.shape[0]
+            parsed_bc.stride = values.strides[0]
+            return 1
+        elif pybc[0] == "deriv2":
+            parsed_bc.type = BS_DERIV2
+            parsed_bc.data = &values[0]
+            parsed_bc.size = values.shape[0]
+            parsed_bc.stride = values.strides[0]
+            return 1
+
+    return 0
+
+    
+cdef int try_parse_bcarray_pair(pybcs, bs_bcarray_pair *parsed_bcs, int size) except -1:
+    """Try to parse boundary conditions. Returns 1 if sucessful, else 0."""
+
+    # try to parse the expression as a boundary condition: if it works,
+    # apply to both right and left.
+    if try_parse_bcarray(pybcs, &parsed_bcs.left, size):
+        parsed_bcs.right = parsed_bcs.left
+        return 1
+
+    # next, try to parse the expression as a left and right bc separately.
+    if (len(pybcs) == 2 and
+        try_parse_bcarray(pybcs[0], &parsed_bcs.left, size) and
+        try_parse_bcarray(pybcs[1], &parsed_bcs.right, size)):
+        return 1
+
+    return 0
+
+
+cdef int try_parse_extend(pyextend, bs_ext *parsed_ext) except -1:
 
     if pyextend == 'extrapolate':
         parsed_ext.type = BS_EXTRAPOLATE
@@ -206,7 +289,7 @@ cdef int try_parse_extend(pyextend, bs_ext *parsed_ext):
         return 1
 
 
-cdef int try_parse_extends(pyextends, bs_exts *parsed_exts):
+cdef int try_parse_extends(pyextends, bs_exts *parsed_exts) except -1:
 
      # Try to parse the expression as a bs_ext. If it works, apply to both
      # right and left.
@@ -306,7 +389,7 @@ cdef class Spline1D:
         cdef double[:] y_ = np.asarray(y, dtype=np.float64)
 
         # parse boundary conditions
-        if not try_parse_boundary_conditions(bcs, &parsed_bcs):
+        if not try_parse_bcs(bcs, &parsed_bcs):
             raise ValueError("unrecognized boundary condition(s): "+repr(bcs))
 
         # parse exterior behavior
@@ -428,7 +511,7 @@ cdef class USpline1D:
             xmin, xmax = x_[0], x_[-1]
 
         # parse boundary conditions
-        if not try_parse_boundary_conditions(bcs, &parsed_bcs):
+        if not try_parse_bcs(bcs, &parsed_bcs):
             raise ValueError("unrecognized boundary condition(s): "+repr(bcs))
 
         # parse exterior behavior
@@ -490,7 +573,7 @@ cdef class Spline2D:
     def __cinit__(self, x, y, z, xbcs='notaknot', ybcs='notaknot',
                   xextend=0., yextend=0.):
 
-        cdef bs_bcs parsed_xbcs, parsed_ybcs
+        cdef bs_bcarray_pair parsed_xbcs, parsed_ybcs
         cdef bs_exts parsed_xexts, parsed_yexts
         cdef bs_errorcode code
         
@@ -500,9 +583,9 @@ cdef class Spline2D:
         cdef double[:, :] z_ = np.asarray(z, dtype=np.float64)
 
         # parse boundary conditions
-        if not try_parse_boundary_conditions(xbcs, &parsed_xbcs):
+        if not try_parse_bcarray_pair(xbcs, &parsed_xbcs, y_.shape[0]):
             raise ValueError("unrecognized boundary condition(s): "+repr(xbcs))
-        if not try_parse_boundary_conditions(ybcs, &parsed_ybcs):
+        if not try_parse_bcarray_pair(ybcs, &parsed_ybcs, x_.shape[0]):
             raise ValueError("unrecognized boundary condition(s): "+repr(ybcs))
 
         # parse exterior behavior
