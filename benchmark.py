@@ -6,14 +6,42 @@ from collections import OrderedDict
 import json
 
 import numpy as np
-from scipy.interpolate import InterpolatedUnivariateSpline, CubicSpline as SciPyCubicSpline
+from scipy.interpolate import InterpolatedUnivariateSpline, RectBivariateSpline, CubicSpline as SciPyCubicSpline
 
-from bsplines import Spline1D, USpline1D
+from bsplines import Spline1D, USpline1D, Spline2D
 
 
 # -----------------------------------------------------------------------------
 # utilities
 # -----------------------------------------------------------------------------
+
+def timeit(f, args, kwargs, target=0.05):
+    """Time execution of f(*args, **kwargs).
+
+    Returns best of 3 run times as (time_per_call, nloops)."""
+
+    # determine number of loops to run.
+    t = 0.0
+    nloops = 1
+    while True:
+        t0 = time()
+        for _ in range(nloops):
+            f(*args, **kwargs)
+        t = time() - t0
+        if t > target or nloops >= 10**9:
+            break
+        nloops *= 10
+
+    # production runs
+    times = [0., 0., 0.]
+    for i in range(3):
+        t0 = time()
+        for _ in range(nloops):
+            f(*args, **kwargs)
+        times[i] = time() - t0
+        
+    return min(times) / nloops, nloops
+    
 
 def print_results(results, title, unit):
     """
@@ -57,19 +85,19 @@ def save_results(results, title, unit, fname):
     with open(fname, 'w') as f:
         json.dump({'title': title, 'unit': unit, 'results': results}, f)
 
-
+# -----------------------------------------------------------------------------
+# benchmarks
+# -----------------------------------------------------------------------------
+        
 def benchmark_creation_1d(cls, kwargs):
     sizes = np.array([10, 30, 100, 1000, 10000, 100000])
-    nloops = np.array([max(2000000 // sz, 1) for sz in sizes])
+    nloops = np.empty_like(sizes)
     times = np.empty_like(sizes, dtype=np.float64)
     for i, n in enumerate(sizes):
         x = np.linspace(0., float(n), n)
         y = np.sin(x)
 
-        t0 = time()
-        for _ in range(nloops[i]):
-            cls(x, y, **kwargs)
-        times[i] = (time() - t0) / nloops[i]
+        times[i], nloops[i] = timeit(cls, (x, y), kwargs)
 
     return {'sizes': sizes.tolist(),
             'nloops': nloops.tolist(),
@@ -78,29 +106,43 @@ def benchmark_creation_1d(cls, kwargs):
 
 def benchmark_eval_1d(cls, kwargs):
     sizes = np.array([10, 30, 100, 1000, 10000, 100000])
-    nloops = np.array([max(2000000 // sz, 1) for sz in sizes])
+    nloops = np.empty_like(sizes)
     times = np.empty_like(sizes, dtype=np.float64)
     for i, n in enumerate(sizes):
         x = np.linspace(0., 1000., 1000)
         y = np.sin(x)
         s = cls(x, y, **kwargs)
 
-        xtest = np.linspace(0., 1000., n)
-        t0 = time()
-        for _ in range(nloops[i]):
-            s(xtest)
-        times[i] = (time() - t0) / nloops[i]
+        xp = np.linspace(0., 1000., n)
+        times[i], nloops[i] = timeit(s, (xp,), {})
 
     return {'sizes': sizes.tolist(),
             'nloops': nloops.tolist(),
             'times': times.tolist()}
+
+
+def benchmark_create_2d(cls, kwargs):
+    sizes = np.array([5, 10, 30, 100, 300, 1000])
+    nloops = np.empty_like(sizes)
+    times = np.empty_like(sizes, dtype=np.float64)
+    for i, n in enumerate(sizes):
+        x = np.linspace(0., float(n), n)
+        y = np.linspace(0., float(n), n)
+        z = np.sin(x) + np.cos(y).reshape((n, 1))
+
+        times[i], nloops[i] = timeit(cls, (x, y, z), kwargs)
+
+    return {'sizes': sizes.tolist(),
+            'nloops': nloops.tolist(),
+            'times': times.tolist()}
+
 
 if __name__ == "__main__":
 
     # results stored here in pickle files for plotting in docs
     os.makedirs("benchmarks", exist_ok=True)
 
-
+    # Spline 1d creation
     results = OrderedDict([
         ('bsplines.USpline1D', benchmark_creation_1d(USpline1D, {})),
         ('bsplines.Spline1D', benchmark_creation_1d(Spline1D, {})),
@@ -112,7 +154,7 @@ if __name__ == "__main__":
     save_results(results, "1-d spline creation", "knots",
                  os.path.join("benchmarks", "1d_create.json"))
 
-
+    # spline 1d evaluation
     results = OrderedDict([
         ('bsplines.USpline1D', benchmark_eval_1d(USpline1D, {})),
         ('bsplines.Spline1D', benchmark_eval_1d(Spline1D, {})),
@@ -124,3 +166,13 @@ if __name__ == "__main__":
     print_results(results, "1-d spline evaluation", "points")
     save_results(results, "1-d spline evaluation", "points",
                  os.path.join("benchmarks", "1d_eval.json"))
+
+
+    # 2-d creation
+    results = OrderedDict([
+        ('bsplines.Spline2D', benchmark_create_2d(Spline2D, {})),
+        ('SciPy RectBivariateSpline',
+         benchmark_create_2d(RectBivariateSpline, {'kx': 3, 'ky': 3}))
+    ])
+
+    print_results(results, "2-d spline creation", "knots (each dimension)")
