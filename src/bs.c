@@ -38,16 +38,38 @@ void print_a_and_b(double first[5], double last[5],
 // Return n-1 if x >= values[n-1].
 //-----------------------------------------------------------------------------
 
-// This version assumes we already know that x >= values[start].
-// (Use start=-1 for no knowledge.)
+// Linear search starting from guess that
+// values[start] <= x < values[start+1].
 static int find_index_from(double *values, int n, double x, int start)
 {
-    if (start < -1) start = -1;
-    if (start > n-1) start = n-1;
-    int i = start + 1;
-    while (i < n && x >= values[i]) i++;
-    return i-1;
+    int i;
+
+    if (start <= -1) {
+        // search down
+        i = 0;
+        while (i < n && x >= values[i]) i++;
+        return i-1;
+    }
+    else if (start >= n-1) {
+        // search down
+        i = n - 1;
+        while (i > -1 && x < values[i]) i--;
+        return i;
+    }
+    else if (x >= values[start]) {
+        // search up
+        i = start + 1;
+        while (i < n && x >= values[i]) i++;
+        return i-1;
+    }
+    else {
+        // search down
+        i = start - 1;
+        while (i > -1 && x < values[i]) i--;
+        return i;
+    }
 }
+
 
 // find index using binary search
 static int find_index_binary(double *values, int n, double x)
@@ -810,9 +832,6 @@ void bs_spline1d_free(bs_spline1d* spline)
 
 bs_errorcode bs_spline1d_eval(bs_spline1d *spline, bs_array x, bs_array out)
 {
-    // ensure that x is increasing
-    if (!is_monotonic(x)) return BS_NOTMONOTONIC;
-
     // for first index, it could be anywhere, so use binary search
     int i = find_index_binary(spline->knots, spline->n, x.data[0]);
 
@@ -1006,10 +1025,6 @@ void bs_spline2d_free(bs_spline2d* spline)
 bs_errorcode bs_spline2d_eval(bs_spline2d *spline, bs_array x, bs_array y,
                               bs_array2d out)
 {
-    // ensure inputs are increasing.
-    if (!is_monotonic(x)) return BS_NOTMONOTONIC;
-    if (!is_monotonic(y)) return BS_NOTMONOTONIC;
-
     // for first index, it could be anywhere, so use binary search
     int i = find_index_binary(spline->xknots, spline->nx, x.data[0]);
     int j0 = find_index_binary(spline->yknots, spline->ny, y.data[0]);

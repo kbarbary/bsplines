@@ -163,6 +163,24 @@ int test_find_index_binary()
     return 0;
 }
 
+int test_find_index_from()
+{
+    double knots[9] = {0., 0.6, 1.0, 1.1, 1.5, 1.9, 2.3, 3., 4.};
+
+    int starts[6] = {-10, 0, 5, 8, 9, 10};
+
+    for (int j=0; j<6; j++) {
+        int start = starts[j];
+
+        ASSERT(find_index_from(knots, 9, 0., start) == 0);
+        ASSERT(find_index_from(knots, 9, 4., start) == 8);
+        ASSERT(find_index_from(knots, 9, -0.0000001, start) == -1);
+        ASSERT(find_index_from(knots, 9, 0.9999, start) == 1);
+        ASSERT(find_index_from(knots, 9, 0.5999, start) == 0);
+    }
+    return 0;
+}
+
 
 int test_is_monotonic()
 {
