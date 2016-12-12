@@ -103,7 +103,7 @@ static int is_monotonic(bs_array x)
 static int min_points(bs_bctype left, bs_bctype right)
 {
     // one additional point needed for each not-a-knot condition.
-    int n = 2 + (left == BS_NOTAKNOT) + (right == BS_NOTAKNOT);
+    return 2 + (left == BS_NOTAKNOT) + (right == BS_NOTAKNOT);
 }
 
 //-----------------------------------------------------------------------------
@@ -317,6 +317,7 @@ static void b3unonzeros(double x, double out[4])
     out[3] = x   * tmp2;
 }
 
+/*
 
 // derivatives of previous function
 static void db3unonzeros(double x, double out[4])
@@ -387,6 +388,7 @@ static void d3b3unonzeros(double out[4])
     out[3] =  1.0;
 }
 
+*/
 
 //-----------------------------------------------------------------------------
 // solve_simple()
@@ -408,6 +410,7 @@ static void d3b3unonzeros(double out[4])
 //
 //-----------------------------------------------------------------------------
 
+/*
 static void solve_simple(double* restrict A, double* restrict b, int n)
 {
     // divide first row by upper left element
@@ -472,6 +475,7 @@ static void solve_simple(double* restrict A, double* restrict b, int n)
     // first row is different
     b[0] -= b[1] * A[1] + b[2] * A[2];
 }
+*/
 
 
 //-----------------------------------------------------------------------------
