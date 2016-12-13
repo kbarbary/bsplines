@@ -18,7 +18,7 @@ sourcefiles = [fname, os.path.join("src", "bs.c")]
 headerfiles = [os.path.join("src", "bs.h")]
 include_dirs=[numpy.get_include(), "src"]
 extensions = [Extension("bsplines", sourcefiles, include_dirs=include_dirs,
-                        depends=headerfiles)]
+                        depends=headerfiles, extra_compile_args=['-std=c99'])]
 
 if USE_CYTHON:
     from Cython.Build import cythonize
